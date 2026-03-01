@@ -1,3 +1,5 @@
+import './globals.css';
+
 export const metadata = {
   title: 'Attack Panel',
   description: 'Server Control Dashboard',
