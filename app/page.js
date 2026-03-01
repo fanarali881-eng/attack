@@ -1,17 +1,40 @@
 'use client';
 import { useState } from 'react';
-import { Play, Square, Upload, Terminal, Settings, Loader2 } from 'lucide-react';
+import { Play, Square, Upload, Terminal, Settings, Loader2, Plus, Trash2, Server } from 'lucide-react';
 
 export default function Home() {
   const [url, setUrl] = useState('');
   const [logs, setLogs] = useState([]);
   const [loading, setLoading] = useState(false);
   const [activeAction, setActiveAction] = useState('');
+  const [showServerPanel, setShowServerPanel] = useState(false);
+  const [servers, setServers] = useState([
+    { host: '138.68.153.135', username: 'root' },
+    { host: '188.166.159.196', username: 'root' },
+    { host: '46.101.78.167', username: 'root' }
+  ]);
+  const [newHost, setNewHost] = useState('');
+  const [newUsername, setNewUsername] = useState('root');
 
   const addLog = (msg) => setLogs(prev => [`[${new Date().toLocaleTimeString()}] ${msg}`, ...prev]);
 
+  const addServer = () => {
+    if (!newHost) return addLog("❌ الرجاء إدخال عنوان IP للسيرفر");
+    if (servers.find(s => s.host === newHost)) return addLog("❌ هذا السيرفر موجود مسبقاً");
+    setServers(prev => [...prev, { host: newHost, username: newUsername || 'root' }]);
+    addLog(`✅ تمت إضافة السيرفر: ${newHost}`);
+    setNewHost('');
+    setNewUsername('root');
+  };
+
+  const removeServer = (host) => {
+    setServers(prev => prev.filter(s => s.host !== host));
+    addLog(`🗑️ تم حذف السيرفر: ${host}`);
+  };
+
   const handleAction = async (action) => {
     if (action === 'start' && !url) return addLog("❌ خطأ: الرجاء إدخال الرابط أولاً");
+    if (servers.length === 0) return addLog("❌ خطأ: لا يوجد سيرفرات، أضف سيرفر أولاً");
 
     setLoading(true);
     setActiveAction(action);
@@ -24,7 +47,6 @@ export default function Home() {
     };
 
     addLog(`🚀 جاري ${actionNames[action]}...`);
-
     if (action === 'setup') {
       addLog("⏳ تجهيز السيرفرات قد يستغرق عدة دقائق، الرجاء الانتظار...");
     }
@@ -33,7 +55,7 @@ export default function Home() {
       const res = await fetch('/api/control', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action, url })
+        body: JSON.stringify({ action, url, servers })
       });
       const data = await res.json();
 
@@ -62,6 +84,67 @@ export default function Home() {
           ⚔️ لوحة تحكم الهجوم (Attack Panel)
         </h1>
 
+        {/* قسم إدارة السيرفرات */}
+        <div className="mb-6">
+          <button
+            onClick={() => setShowServerPanel(!showServerPanel)}
+            className="flex items-center gap-2 text-sm text-yellow-400 hover:text-yellow-300 transition mb-3"
+          >
+            <Server size={16} />
+            إدارة السيرفرات ({servers.length} سيرفر)
+            <span className="text-xs">{showServerPanel ? '▲' : '▼'}</span>
+          </button>
+
+          {showServerPanel && (
+            <div className="border border-green-900 rounded p-4 mb-4 bg-black">
+              {/* قائمة السيرفرات الحالية */}
+              <div className="space-y-2 mb-4">
+                {servers.map((server, i) => (
+                  <div key={i} className="flex items-center justify-between bg-gray-900 p-2 rounded text-sm">
+                    <span className="text-green-400">
+                      🖥️ {server.host} ({server.username})
+                    </span>
+                    <button
+                      onClick={() => removeServer(server.host)}
+                      className="text-red-500 hover:text-red-400 transition"
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  </div>
+                ))}
+                {servers.length === 0 && (
+                  <p className="text-gray-600 text-sm text-center">لا يوجد سيرفرات</p>
+                )}
+              </div>
+
+              {/* إضافة سيرفر جديد */}
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={newHost}
+                  onChange={(e) => setNewHost(e.target.value)}
+                  placeholder="عنوان IP (مثال: 192.168.1.1)"
+                  className="flex-1 bg-gray-900 border border-green-700 p-2 rounded text-white text-sm focus:outline-none focus:border-green-500"
+                />
+                <input
+                  type="text"
+                  value={newUsername}
+                  onChange={(e) => setNewUsername(e.target.value)}
+                  placeholder="المستخدم"
+                  className="w-24 bg-gray-900 border border-green-700 p-2 rounded text-white text-sm focus:outline-none focus:border-green-500"
+                />
+                <button
+                  onClick={addServer}
+                  className="flex items-center gap-1 bg-green-900 hover:bg-green-800 text-white px-3 py-2 rounded transition text-sm"
+                >
+                  <Plus size={16} /> إضافة
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* حقل الرابط المستهدف */}
         <div className="space-y-4">
           <div>
             <label className="block mb-2 text-sm">الرابط المستهدف (Target URL)</label>
@@ -74,6 +157,7 @@ export default function Home() {
             />
           </div>
 
+          {/* أزرار التحكم */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-6">
             <button
               onClick={() => handleAction('setup')}
@@ -113,6 +197,7 @@ export default function Home() {
           </div>
         </div>
 
+        {/* سجل النظام */}
         <div className="mt-8">
           <div className="flex items-center justify-between mb-2">
             <div className="flex items-center gap-2 text-sm text-gray-400">
