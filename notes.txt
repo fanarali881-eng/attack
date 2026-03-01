@@ -1,0 +1,5 @@
+المشكلة: الكود يستخدم Tailwind CSS classes (مثل bg-black, text-green-500, etc) لكن المشروع ليس فيه Tailwind مثبت.
+الحل: إما تثبيت Tailwind أو استبدال كل الـ classes بـ inline styles.
+الأسرع: استبدال بـ inline styles لأن تثبيت Tailwind يحتاج تعديلات كثيرة.
+أيضاً: الكود يستخدم lucide-react icons وهي غير مثبتة في package.json.
+يجب إضافة lucide-react في dependencies أو استبدال الأيقونات بـ emoji.
