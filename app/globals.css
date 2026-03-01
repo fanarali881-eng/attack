@@ -1,3 +1,6 @@
+/* Import Arabic-friendly monospace font */
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+Arabic:wght@400;700&display=swap');
+
 /* CSS Reset and Global Styles */
 *, *::before, *::after {
   box-sizing: border-box;
@@ -11,7 +14,7 @@ html, body {
   min-height: 100vh;
   background-color: #000000;
   color: #22c55e;
-  font-family: 'Courier New', Courier, monospace;
+  font-family: 'Courier New', 'Noto Sans Arabic', 'Segoe UI', Tahoma, monospace;
   direction: rtl;
 }
 

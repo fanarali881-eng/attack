@@ -18,36 +18,36 @@ export default function Home() {
   const addLog = (msg) => setLogs(prev => [`[${new Date().toLocaleTimeString()}] ${msg}`, ...prev]);
 
   const addServer = () => {
-    if (!newHost) return addLog('\u274c \u0627\u0644\u0631\u062c\u0627\u0621 \u0625\u062f\u062e\u0627\u0644 \u0639\u0646\u0648\u0627\u0646 IP \u0644\u0644\u0633\u064a\u0631\u0641\u0631');
-    if (servers.find(s => s.host === newHost)) return addLog('\u274c \u0647\u0630\u0627 \u0627\u0644\u0633\u064a\u0631\u0641\u0631 \u0645\u0648\u062c\u0648\u062f \u0645\u0633\u0628\u0642\u0627\u064b');
+    if (!newHost) return addLog('❌ الرجاء إدخال عنوان IP للسيرفر');
+    if (servers.find(s => s.host === newHost)) return addLog('❌ هذا السيرفر موجود مسبقاً');
     setServers(prev => [...prev, { host: newHost, username: newUsername || 'root' }]);
-    addLog(`\u2705 \u062a\u0645\u062a \u0625\u0636\u0627\u0641\u0629 \u0627\u0644\u0633\u064a\u0631\u0641\u0631: ${newHost}`);
+    addLog(`✅ تمت إضافة السيرفر: ${newHost}`);
     setNewHost('');
     setNewUsername('root');
   };
 
   const removeServer = (host) => {
     setServers(prev => prev.filter(s => s.host !== host));
-    addLog(`\ud83d\uddd1\ufe0f \u062a\u0645 \u062d\u0630\u0641 \u0627\u0644\u0633\u064a\u0631\u0641\u0631: ${host}`);
+    addLog(`🗑️ تم حذف السيرفر: ${host}`);
   };
 
   const handleAction = async (action) => {
-    if (action === 'start' && !url) return addLog('\u274c \u062e\u0637\u0623: \u0627\u0644\u0631\u062c\u0627\u0621 \u0625\u062f\u062e\u0627\u0644 \u0627\u0644\u0631\u0627\u0628\u0637 \u0623\u0648\u0644\u0627\u064b');
-    if (servers.length === 0) return addLog('\u274c \u062e\u0637\u0623: \u0644\u0627 \u064a\u0648\u062c\u062f \u0633\u064a\u0631\u0641\u0631\u0627\u062a\u060c \u0623\u0636\u0641 \u0633\u064a\u0631\u0641\u0631 \u0623\u0648\u0644\u0627\u064b');
+    if (action === 'start' && !url) return addLog('❌ خطأ: الرجاء إدخال الرابط أولاً');
+    if (servers.length === 0) return addLog('❌ خطأ: لا يوجد سيرفرات، أضف سيرفر أولاً');
 
     setLoading(true);
     setActiveAction(action);
 
     const actionNames = {
-      setup: '\u062a\u062c\u0647\u064a\u0632 \u0627\u0644\u0633\u064a\u0631\u0641\u0631\u0627\u062a',
-      deploy: '\u0631\u0641\u0639 \u0627\u0644\u0633\u0643\u0631\u064a\u0628\u062a',
-      start: '\u0628\u062f\u0621 \u0627\u0644\u0647\u062c\u0648\u0645',
-      stop: '\u0625\u064a\u0642\u0627\u0641 \u0627\u0644\u0643\u0644'
+      setup: 'تجهيز السيرفرات',
+      deploy: 'رفع السكريبت',
+      start: 'بدء الهجوم',
+      stop: 'إيقاف الكل'
     };
 
-    addLog(`\ud83d\ude80 \u062c\u0627\u0631\u064a ${actionNames[action]}...`);
+    addLog(`🚀 جاري ${actionNames[action]}...`);
     if (action === 'setup') {
-      addLog('\u23f3 \u062a\u062c\u0647\u064a\u0632 \u0627\u0644\u0633\u064a\u0631\u0641\u0631\u0627\u062a \u0642\u062f \u064a\u0633\u062a\u063a\u0631\u0642 \u0639\u062f\u0629 \u062f\u0642\u0627\u0626\u0642\u060c \u0627\u0644\u0631\u062c\u0627\u0621 \u0627\u0644\u0627\u0646\u062a\u0638\u0627\u0631...');
+      addLog('⏳ تجهيز السيرفرات قد يستغرق عدة دقائق، الرجاء الانتظار...');
     }
 
     try {
@@ -59,22 +59,24 @@ export default function Home() {
       const data = await res.json();
 
       if (data.error) {
-        addLog(`\u274c \u062e\u0637\u0623: ${data.error}`);
+        addLog(`❌ خطأ: ${data.error}`);
       } else {
         data.results.forEach(r => {
           if (r.status === 'success') {
-            addLog(`\u2705 ${r.host}: ${r.output || '\u062a\u0645 \u0628\u0646\u062c\u0627\u062d'}`);
+            addLog(`✅ ${r.host}: ${r.output || 'تم بنجاح'}`);
           } else {
-            addLog(`\u274c ${r.host}: ${r.error}`);
+            addLog(`❌ ${r.host}: ${r.error}`);
           }
         });
       }
     } catch (err) {
-      addLog(`\u274c \u062e\u0637\u0623 \u0641\u064a \u0627\u0644\u0646\u0638\u0627\u0645: ${err.message}`);
+      addLog(`❌ خطأ في النظام: ${err.message}`);
     }
     setLoading(false);
     setActiveAction('');
   };
+
+  const fontFamily = "'Courier New', 'Noto Sans Arabic', 'Segoe UI', Tahoma, monospace";
 
   const styles = {
     page: {
@@ -82,7 +84,7 @@ export default function Home() {
       backgroundColor: '#000',
       color: '#22c55e',
       padding: '32px',
-      fontFamily: 'monospace',
+      fontFamily: fontFamily,
       direction: 'rtl'
     },
     container: {
@@ -112,7 +114,7 @@ export default function Home() {
       background: 'none',
       border: 'none',
       marginBottom: '12px',
-      fontFamily: 'monospace'
+      fontFamily: fontFamily
     },
     serverPanel: {
       border: '1px solid #14532d',
@@ -138,7 +140,7 @@ export default function Home() {
       background: 'none',
       border: 'none',
       fontSize: '16px',
-      fontFamily: 'monospace'
+      fontFamily: fontFamily
     },
     addServerRow: {
       display: 'flex',
@@ -153,7 +155,7 @@ export default function Home() {
       borderRadius: '6px',
       color: '#fff',
       fontSize: '14px',
-      fontFamily: 'monospace',
+      fontFamily: fontFamily,
       outline: 'none'
     },
     inputSmall: {
@@ -164,7 +166,7 @@ export default function Home() {
       borderRadius: '6px',
       color: '#fff',
       fontSize: '14px',
-      fontFamily: 'monospace',
+      fontFamily: fontFamily,
       outline: 'none'
     },
     addBtn: {
@@ -178,7 +180,7 @@ export default function Home() {
       cursor: 'pointer',
       border: 'none',
       fontSize: '14px',
-      fontFamily: 'monospace'
+      fontFamily: fontFamily
     },
     label: {
       display: 'block',
@@ -194,7 +196,7 @@ export default function Home() {
       borderRadius: '6px',
       color: '#fff',
       fontSize: '16px',
-      fontFamily: 'monospace',
+      fontFamily: fontFamily,
       outline: 'none',
       boxSizing: 'border-box'
     },
@@ -216,7 +218,7 @@ export default function Home() {
       cursor: 'pointer',
       border: 'none',
       fontSize: '13px',
-      fontFamily: 'monospace',
+      fontFamily: fontFamily,
       transition: 'background 0.2s'
     },
     btnDeploy: {
@@ -231,7 +233,7 @@ export default function Home() {
       cursor: 'pointer',
       border: 'none',
       fontSize: '13px',
-      fontFamily: 'monospace',
+      fontFamily: fontFamily,
       transition: 'background 0.2s'
     },
     btnStart: {
@@ -246,7 +248,7 @@ export default function Home() {
       cursor: 'pointer',
       border: 'none',
       fontSize: '13px',
-      fontFamily: 'monospace',
+      fontFamily: fontFamily,
       transition: 'background 0.2s'
     },
     btnStop: {
@@ -261,7 +263,7 @@ export default function Home() {
       cursor: 'pointer',
       border: 'none',
       fontSize: '13px',
-      fontFamily: 'monospace',
+      fontFamily: fontFamily,
       transition: 'background 0.2s'
     },
     logsHeader: {
@@ -281,7 +283,7 @@ export default function Home() {
       cursor: 'pointer',
       background: 'none',
       border: 'none',
-      fontFamily: 'monospace'
+      fontFamily: fontFamily
     },
     logsBox: {
       backgroundColor: '#000',
@@ -291,7 +293,7 @@ export default function Home() {
       padding: '16px',
       borderRadius: '6px',
       fontSize: '12px',
-      fontFamily: 'monospace'
+      fontFamily: fontFamily
     },
     logItem: {
       marginBottom: '4px',
@@ -316,7 +318,7 @@ export default function Home() {
     <div style={styles.page}>
       <div style={styles.container}>
         <h1 style={styles.title}>
-          \u2694\ufe0f \u0644\u0648\u062d\u0629 \u062a\u062d\u0643\u0645 \u0627\u0644\u0647\u062c\u0648\u0645 (Attack Panel)
+          ⚔️ لوحة تحكم الهجوم (Attack Panel)
         </h1>
 
         {/* Server Management */}
@@ -325,7 +327,7 @@ export default function Home() {
             onClick={() => setShowServerPanel(!showServerPanel)}
             style={styles.serverToggle}
           >
-            \ud83d\udda5\ufe0f \u0625\u062f\u0627\u0631\u0629 \u0627\u0644\u0633\u064a\u0631\u0641\u0631\u0627\u062a ({servers.length} \u0633\u064a\u0631\u0641\u0631) {showServerPanel ? '\u25b2' : '\u25bc'}
+            🖥️ إدارة السيرفرات ({servers.length} سيرفر) {showServerPanel ? '▲' : '▼'}
           </button>
 
           {showServerPanel && (
@@ -333,17 +335,17 @@ export default function Home() {
               <div>
                 {servers.map((server, i) => (
                   <div key={i} style={styles.serverItem}>
-                    <span>\ud83d\udda5\ufe0f {server.host} ({server.username})</span>
+                    <span>🖥️ {server.host} ({server.username})</span>
                     <button
                       onClick={() => removeServer(server.host)}
                       style={styles.deleteBtn}
                     >
-                      \ud83d\uddd1\ufe0f
+                      🗑️
                     </button>
                   </div>
                 ))}
                 {servers.length === 0 && (
-                  <p style={styles.noServers}>\u0644\u0627 \u064a\u0648\u062c\u062f \u0633\u064a\u0631\u0641\u0631\u0627\u062a</p>
+                  <p style={styles.noServers}>لا يوجد سيرفرات</p>
                 )}
               </div>
 
@@ -352,18 +354,18 @@ export default function Home() {
                   type="text"
                   value={newHost}
                   onChange={(e) => setNewHost(e.target.value)}
-                  placeholder="\u0639\u0646\u0648\u0627\u0646 IP (\u0645\u062b\u0627\u0644: 192.168.1.1)"
+                  placeholder="عنوان IP (مثال: 192.168.1.1)"
                   style={styles.input}
                 />
                 <input
                   type="text"
                   value={newUsername}
                   onChange={(e) => setNewUsername(e.target.value)}
-                  placeholder="\u0627\u0644\u0645\u0633\u062a\u062e\u062f\u0645"
+                  placeholder="المستخدم"
                   style={styles.inputSmall}
                 />
                 <button onClick={addServer} style={styles.addBtn}>
-                  + \u0625\u0636\u0627\u0641\u0629
+                  + إضافة
                 </button>
               </div>
             </div>
@@ -372,7 +374,7 @@ export default function Home() {
 
         {/* Target URL */}
         <div>
-          <label style={styles.label}>\u0627\u0644\u0631\u0627\u0628\u0637 \u0627\u0644\u0645\u0633\u062a\u0647\u062f\u0641 (Target URL)</label>
+          <label style={styles.label}>الرابط المستهدف (Target URL)</label>
           <input
             type="text"
             value={url}
@@ -389,7 +391,7 @@ export default function Home() {
             disabled={loading}
             style={loading ? {...styles.btnSetup, ...styles.disabledBtn} : styles.btnSetup}
           >
-            {activeAction === 'setup' ? '\u23f3' : '\u2699\ufe0f'} 0. \u062a\u062c\u0647\u064a\u0632 \u0627\u0644\u0633\u064a\u0631\u0641\u0631\u0627\u062a
+            {activeAction === 'setup' ? '⏳' : '⚙️'} 0. تجهيز السيرفرات
           </button>
 
           <button
@@ -397,7 +399,7 @@ export default function Home() {
             disabled={loading}
             style={loading ? {...styles.btnDeploy, ...styles.disabledBtn} : styles.btnDeploy}
           >
-            {activeAction === 'deploy' ? '\u23f3' : '\ud83d\udce4'} 1. \u0631\u0641\u0639 \u0627\u0644\u0633\u0643\u0631\u064a\u0628\u062a
+            {activeAction === 'deploy' ? '⏳' : '📤'} 1. رفع السكريبت
           </button>
 
           <button
@@ -405,7 +407,7 @@ export default function Home() {
             disabled={loading}
             style={loading ? {...styles.btnStart, ...styles.disabledBtn} : styles.btnStart}
           >
-            {activeAction === 'start' ? '\u23f3' : '\u25b6\ufe0f'} 2. \u0628\u062f\u0621 \u0627\u0644\u0647\u062c\u0648\u0645
+            {activeAction === 'start' ? '⏳' : '▶️'} 2. بدء الهجوم
           </button>
 
           <button
@@ -413,21 +415,21 @@ export default function Home() {
             disabled={loading}
             style={loading ? {...styles.btnStop, ...styles.disabledBtn} : styles.btnStop}
           >
-            {activeAction === 'stop' ? '\u23f3' : '\u23f9\ufe0f'} \u0625\u064a\u0642\u0627\u0641 \u0627\u0644\u0643\u0644
+            {activeAction === 'stop' ? '⏳' : '⏹️'} إيقاف الكل
           </button>
         </div>
 
         {/* System Logs */}
         <div>
           <div style={styles.logsHeader}>
-            <span style={styles.logsTitle}>\ud83d\udcbb \u0633\u062c\u0644 \u0627\u0644\u0646\u0638\u0627\u0645 (System Logs)</span>
+            <span style={styles.logsTitle}>💻 سجل النظام (System Logs)</span>
             <button onClick={() => setLogs([])} style={styles.clearBtn}>
-              \u0645\u0633\u062d \u0627\u0644\u0633\u062c\u0644
+              مسح السجل
             </button>
           </div>
           <div style={styles.logsBox}>
             {logs.length === 0 ? (
-              <span style={styles.placeholder}>\u0628\u0627\u0646\u062a\u0638\u0627\u0631 \u0627\u0644\u0623\u0648\u0627\u0645\u0631...</span>
+              <span style={styles.placeholder}>بانتظار الأوامر...</span>
             ) : (
               logs.map((log, i) => (
                 <div key={i} style={styles.logItem}>{log}</div>
