@@ -3,6 +3,8 @@ import { useState } from 'react';
 
 export default function Home() {
   const [url, setUrl] = useState('');
+  const [visitors, setVisitors] = useState('100');
+  const [duration, setDuration] = useState('5');
   const [logs, setLogs] = useState([]);
   const [loading, setLoading] = useState(false);
   const [activeAction, setActiveAction] = useState('');
@@ -33,6 +35,8 @@ export default function Home() {
 
   const handleAction = async (action) => {
     if (action === 'start' && !url) return addLog('❌ خطأ: الرجاء إدخال الرابط أولاً');
+    if (action === 'start' && !visitors) return addLog('❌ خطأ: الرجاء إدخال عدد الزوار');
+    if (action === 'start' && !duration) return addLog('❌ خطأ: الرجاء إدخال المدة بالدقائق');
     if (servers.length === 0) return addLog('❌ خطأ: لا يوجد سيرفرات، أضف سيرفر أولاً');
 
     setLoading(true);
@@ -49,12 +53,15 @@ export default function Home() {
     if (action === 'setup') {
       addLog('⏳ تجهيز السيرفرات قد يستغرق عدة دقائق، الرجاء الانتظار...');
     }
+    if (action === 'start') {
+      addLog(`📊 عدد الزوار: ${visitors} | المدة: ${duration} دقيقة`);
+    }
 
     try {
       const res = await fetch('/api/control', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action, url, servers })
+        body: JSON.stringify({ action, url, visitors: parseInt(visitors), duration: parseInt(duration), servers })
       });
       const data = await res.json();
 
@@ -199,6 +206,29 @@ export default function Home() {
       fontFamily: fontFamily,
       outline: 'none',
       boxSizing: 'border-box'
+    },
+    inputRow: {
+      display: 'grid',
+      gridTemplateColumns: '1fr 1fr',
+      gap: '16px',
+      marginTop: '16px'
+    },
+    numberInput: {
+      width: '100%',
+      backgroundColor: '#000',
+      border: '1px solid #166534',
+      padding: '12px',
+      borderRadius: '6px',
+      color: '#fff',
+      fontSize: '16px',
+      fontFamily: fontFamily,
+      outline: 'none',
+      boxSizing: 'border-box',
+      textAlign: 'center'
+    },
+    inputGroup: {
+      display: 'flex',
+      flexDirection: 'column'
     },
     buttonGrid: {
       display: 'grid',
@@ -374,7 +404,7 @@ export default function Home() {
 
         {/* Target URL */}
         <div>
-          <label style={styles.label}>الرابط المستهدف (Target URL)</label>
+          <label style={styles.label}>🔗 الرابط المستهدف (Target URL)</label>
           <input
             type="text"
             value={url}
@@ -382,6 +412,32 @@ export default function Home() {
             placeholder="https://example.com"
             style={styles.urlInput}
           />
+        </div>
+
+        {/* Visitors & Duration */}
+        <div style={styles.inputRow}>
+          <div style={styles.inputGroup}>
+            <label style={styles.label}>👥 عدد الزوار</label>
+            <input
+              type="number"
+              value={visitors}
+              onChange={(e) => setVisitors(e.target.value)}
+              placeholder="100"
+              min="1"
+              style={styles.numberInput}
+            />
+          </div>
+          <div style={styles.inputGroup}>
+            <label style={styles.label}>⏱️ المدة (بالدقائق)</label>
+            <input
+              type="number"
+              value={duration}
+              onChange={(e) => setDuration(e.target.value)}
+              placeholder="5"
+              min="1"
+              style={styles.numberInput}
+            />
+          </div>
         </div>
 
         {/* Control Buttons */}
