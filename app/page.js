@@ -16,6 +16,12 @@ export default function Home() {
   ]);
   const [newHost, setNewHost] = useState('');
   const [newUsername, setNewUsername] = useState('root');
+  const [useProxy, setUseProxy] = useState(true);
+  const [proxyHost, setProxyHost] = useState('p.webshare.io');
+  const [proxyPort, setProxyPort] = useState('80');
+  const [proxyUser, setProxyUser] = useState('rbtthqr-sa');
+  const [proxyPass, setProxyPass] = useState('3opjjm7k9oh2');
+  const [proxyCount, setProxyCount] = useState('10');
   const [monitoring, setMonitoring] = useState(false);
   const [serverStatus, setServerStatus] = useState([]);
   const intervalRef = useRef(null);
@@ -107,7 +113,7 @@ export default function Home() {
       const res = await fetch('/api/control', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action, url, visitors: parseInt(visitors), duration: parseInt(duration), servers })
+        body: JSON.stringify({ action, url, visitors: parseInt(visitors), duration: parseInt(duration), servers, proxies: useProxy ? buildProxyList() : [] })
       });
       const data = await res.json();
 
@@ -163,6 +169,15 @@ export default function Home() {
     const m = Math.floor(seconds / 60);
     const s = seconds % 60;
     return `${m}:${String(s).padStart(2, '0')}`;
+  };
+
+  const buildProxyList = () => {
+    const list = [];
+    const count = parseInt(proxyCount) || 10;
+    for (let i = 1; i <= count; i++) {
+      list.push({ host: proxyHost, port: proxyPort, username: `${proxyUser}-${i}`, password: proxyPass });
+    }
+    return list;
   };
 
   const fontFamily = "'Courier New', 'Noto Sans Arabic', 'Segoe UI', Tahoma, monospace";
@@ -252,6 +267,45 @@ export default function Home() {
                 <input type="text" value={newUsername} onChange={(e) => setNewUsername(e.target.value)} placeholder="المستخدم" style={styles.inputSmall} />
                 <button onClick={addServer} style={styles.addBtn}>+ إضافة</button>
               </div>
+            </div>
+          )}
+        </div>
+
+        {/* Proxy Settings */}
+        <div style={{ marginBottom: '16px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}>
+            <label style={{ fontSize: '14px', color: '#22c55e' }}>🌐 بروكسي سعودي (Saudi Proxy)</label>
+            <button onClick={() => setUseProxy(!useProxy)} style={{ background: useProxy ? '#22c55e' : '#374151', color: '#fff', border: 'none', padding: '4px 16px', borderRadius: '12px', cursor: 'pointer', fontSize: '12px', fontFamily }}>
+              {useProxy ? '✅ مفعّل' : '❌ معطّل'}
+            </button>
+          </div>
+          {useProxy && (
+            <div style={{ border: '1px solid #14532d', borderRadius: '8px', padding: '16px', backgroundColor: '#000' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '8px', marginBottom: '8px' }}>
+                <div>
+                  <label style={{ fontSize: '11px', color: '#6b7280', marginBottom: '4px', display: 'block' }}>Proxy Host</label>
+                  <input type="text" value={proxyHost} onChange={(e) => setProxyHost(e.target.value)} style={styles.urlInput} />
+                </div>
+                <div>
+                  <label style={{ fontSize: '11px', color: '#6b7280', marginBottom: '4px', display: 'block' }}>Port</label>
+                  <input type="text" value={proxyPort} onChange={(e) => setProxyPort(e.target.value)} style={styles.urlInput} />
+                </div>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px' }}>
+                <div>
+                  <label style={{ fontSize: '11px', color: '#6b7280', marginBottom: '4px', display: 'block' }}>Username Prefix</label>
+                  <input type="text" value={proxyUser} onChange={(e) => setProxyUser(e.target.value)} style={styles.urlInput} />
+                </div>
+                <div>
+                  <label style={{ fontSize: '11px', color: '#6b7280', marginBottom: '4px', display: 'block' }}>Password</label>
+                  <input type="text" value={proxyPass} onChange={(e) => setProxyPass(e.target.value)} style={styles.urlInput} />
+                </div>
+                <div>
+                  <label style={{ fontSize: '11px', color: '#6b7280', marginBottom: '4px', display: 'block' }}>عدد البروكسيات</label>
+                  <input type="number" value={proxyCount} onChange={(e) => setProxyCount(e.target.value)} min="1" max="50" style={styles.urlInput} />
+                </div>
+              </div>
+              <div style={{ marginTop: '8px', fontSize: '11px', color: '#4ade80' }}>🇸🇦 {proxyCount} بروكسي سعودي جاهز ({proxyUser}-1 إلى {proxyUser}-{proxyCount})</div>
             </div>
           )}
         </div>
