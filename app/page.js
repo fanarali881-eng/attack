@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 export default function Home() {
   const [url, setUrl] = useState('');
   const [visitors, setVisitors] = useState('100');
-  const [duration, setDuration] = useState('1');
+  // Duration is display-only (estimated time), not sent to servers
   const [logs, setLogs] = useState([]);
   const [loading, setLoading] = useState(false);
   const [activeAction, setActiveAction] = useState('');
@@ -31,15 +31,13 @@ export default function Home() {
 
   const addLog = (msg) => setLogs(prev => [`[${new Date().toLocaleTimeString()}] ${msg}`, ...prev]);
 
-  // Auto-calculate duration based on visitors and server count
-  // Realistic: ~100 visits/min per server (Chrome startup + page load + human-like delays)
-  const VISITS_PER_MIN_PER_SERVER = 100;
-  const calcDurationSeconds = (v) => {
+  // Estimated time display (175 visits/min per server from real benchmarks)
+  const VISITS_PER_MIN_PER_SERVER = 175;
+  const calcEstimatedSeconds = (v) => {
     const numVisitors = parseInt(v) || 0;
     if (numVisitors <= 0) return 0;
     const perServer = Math.ceil(numVisitors / servers.length);
-    // Give 2x the estimated time to make sure it finishes + 2 min buffer for Chrome startup
-    return Math.ceil((perServer / VISITS_PER_MIN_PER_SERVER) * 60 * 2) + 120;
+    return Math.ceil((perServer / VISITS_PER_MIN_PER_SERVER) * 60);
   };
   const formatDuration = (seconds) => {
     if (seconds <= 0) return '0 ثانية';
@@ -49,24 +47,11 @@ export default function Home() {
     if (secs === 0) return `${mins} دقيقة`;
     return `${mins} دقيقة و ${secs} ثانية`;
   };
-  const calcDuration = (v) => {
-    const numVisitors = parseInt(v) || 0;
-    if (numVisitors <= 0) return '1';
-    const perServer = Math.ceil(numVisitors / servers.length);
-    // Give 2x estimated time + 2 min buffer so it NEVER cuts off early
-    return String(Math.max(3, Math.ceil((perServer / VISITS_PER_MIN_PER_SERVER) * 2) + 2));
-  };
 
   const handleVisitorsChange = (val) => {
     setVisitors(val);
-    setDuration(calcDuration(val));
   };
-  const durationSeconds = calcDurationSeconds(visitors);
-
-  // Recalculate duration when servers change
-  useEffect(() => {
-    setDuration(calcDuration(visitors));
-  }, [servers.length]);
+  const estimatedSeconds = calcEstimatedSeconds(visitors);
 
   // Fetch status from all servers
   const fetchStatus = async () => {
@@ -128,7 +113,7 @@ export default function Home() {
   const handleAction = async (action) => {
     if (action === 'start' && !url) return addLog('❌ خطأ: الرجاء إدخال الرابط أولاً');
     if (action === 'start' && !visitors) return addLog('❌ خطأ: الرجاء إدخال عدد الزوار');
-    if (action === 'start' && !duration) return addLog('❌ خطأ: الرجاء إدخال المدة بالدقائق');
+
     if (servers.length === 0) return addLog('❌ خطأ: لا يوجد سيرفرات، أضف سيرفر أولاً');
 
     setLoading(true);
@@ -146,14 +131,14 @@ export default function Home() {
       addLog('⏳ تجهيز السيرفرات قد يستغرق عدة دقائق، الرجاء الانتظار...');
     }
     if (action === 'start') {
-      addLog(`📊 عدد الزوار: ${visitors} | المدة: ${duration} دقيقة`);
+      addLog(`📊 عدد الزوار: ${visitors} | الوقت المتوقع: ~${formatDuration(estimatedSeconds)} | أقصى سرعة`);
     }
 
     try {
       const res = await fetch('/api/control', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action, url, visitors: parseInt(visitors), duration: parseInt(duration), servers, proxies: useProxy ? buildProxyList() : [] })
+        body: JSON.stringify({ action, url, visitors: parseInt(visitors), servers, proxies: useProxy ? buildProxyList() : [] })
       });
       const data = await res.json();
 
@@ -365,10 +350,10 @@ export default function Home() {
           <div style={styles.inputGroup}>
             <label style={styles.label}>⏱️ المدة المتوقعة</label>
             <div style={{...styles.numberInput, display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#0a1628', color: '#4ade80', fontSize: '18px', fontWeight: 'bold'}}>
-              {formatDuration(durationSeconds)}
+              {formatDuration(estimatedSeconds)}
             </div>
             <div style={{fontSize: '10px', color: '#6b7280', textAlign: 'center', marginTop: '4px'}}>
-              {servers.length} سيرفر × {VISITS_PER_MIN_PER_SERVER} زيارة/دقيقة = {servers.length * VISITS_PER_MIN_PER_SERVER}/دقيقة
+              {servers.length} سيرفر × {VISITS_PER_MIN_PER_SERVER} زيارة/دقيقة | بدون حد زمني ⚡
             </div>
           </div>
         </div>
@@ -423,8 +408,8 @@ export default function Home() {
                         <div style={styles.statLabel}>الهدف</div>
                       </div>
                       <div style={styles.statBox}>
-                        <div style={{...styles.statValue, color: s.remaining > 0 ? '#facc15' : '#22c55e'}}>{formatTime(s.remaining || 0)}</div>
-                        <div style={styles.statLabel}>متبقي</div>
+                        <div style={{...styles.statValue, color: '#4ade80'}}>{formatTime(s.elapsed || 0)}</div>
+                        <div style={styles.statLabel}>الوقت</div>
                       </div>
                       <div style={styles.statBox}>
                         <div style={{...styles.statValue, color: (s.errors || 0) > 0 ? '#ef4444' : '#22c55e'}}>{s.errors || 0}</div>
