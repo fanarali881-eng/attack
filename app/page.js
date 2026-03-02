@@ -27,7 +27,7 @@ export default function Home() {
   const [proxyCount, setProxyCount] = useState('10');
   const [captchaEnabled, setCaptchaEnabled] = useState(false);
   const [captchaApiKey, setCaptchaApiKey] = useState('');
-  const [captchaService, setCaptchaService] = useState('2captcha');
+  // captchaService auto-detected from API key
   const [monitoring, setMonitoring] = useState(false);
   const [serverStatus, setServerStatus] = useState([]);
   const [attackStartTime, setAttackStartTime] = useState(null);
@@ -180,7 +180,7 @@ export default function Home() {
       const res = await fetch('/api/control', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action, url, visitors: parseInt(visitors), servers, proxies: useProxy ? buildProxyList() : [], captchaApiKey: captchaEnabled ? captchaApiKey : '', captchaService: captchaEnabled ? captchaService : '' })
+        body: JSON.stringify({ action, url, visitors: parseInt(visitors), servers, proxies: useProxy ? buildProxyList() : [], captchaApiKey: captchaEnabled ? captchaApiKey : '' })
       });
       const data = await res.json();
 
@@ -391,22 +391,12 @@ export default function Home() {
           </div>
           {captchaEnabled && (
             <div style={{ border: '1px solid #92400e', borderRadius: '8px', padding: '16px', backgroundColor: '#000' }}>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '8px', marginBottom: '8px' }}>
-                <div>
-                  <label style={{ fontSize: '11px', color: '#6b7280', marginBottom: '4px', display: 'block' }}>الخدمة</label>
-                  <select value={captchaService} onChange={(e) => setCaptchaService(e.target.value)} style={{...styles.urlInput, cursor: 'pointer'}}>
-                    <option value="2captcha">2Captcha</option>
-                    <option value="anticaptcha">Anti-Captcha</option>
-                    <option value="capsolver">CapSolver</option>
-                  </select>
-                </div>
-                <div>
-                  <label style={{ fontSize: '11px', color: '#6b7280', marginBottom: '4px', display: 'block' }}>API Key</label>
-                  <input type="text" value={captchaApiKey} onChange={(e) => setCaptchaApiKey(e.target.value)} placeholder="ادخل API Key هنا..." style={styles.urlInput} />
-                </div>
+              <div>
+                <label style={{ fontSize: '11px', color: '#6b7280', marginBottom: '4px', display: 'block' }}>API Key (2Captcha / Anti-Captcha / CapSolver)</label>
+                <input type="text" value={captchaApiKey} onChange={(e) => setCaptchaApiKey(e.target.value)} placeholder="ادخل API Key هنا..." style={styles.urlInput} />
               </div>
               <div style={{ marginTop: '8px', fontSize: '11px', color: captchaApiKey ? '#f59e0b' : '#6b7280' }}>
-                {captchaApiKey ? `🔓 ${captchaService} جاهز - سيتم حل CAPTCHA تلقائياً` : '⚠️ ادخل API Key للتفعيل - احصل عليه من موقع الخدمة'}
+                {captchaApiKey ? '🔓 جاهز - سيتم حل CAPTCHA تلقائياً (الخدمة تُكتشف تلقائياً)' : '⚠️ ادخل API Key للتفعيل - احصل عليه من 2captcha.com أو anti-captcha.com أو capsolver.com'}
               </div>
             </div>
           )}
