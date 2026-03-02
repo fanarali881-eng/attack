@@ -1,38 +1,62 @@
 import { NextResponse } from 'next/server';
 import { Client } from 'ssh2';
 
-async function getServerStatus(server, timeout = 10000) {
-  return new Promise((resolve, reject) => {
+async function getServerStatus(server) {
+  return new Promise((resolve) => {
     const conn = new Client();
+    let resolved = false;
+
+    const done = (result) => {
+      if (!resolved) {
+        resolved = true;
+        try { conn.end(); } catch(e) {}
+        resolve(result);
+      }
+    };
+
     const timer = setTimeout(() => {
-      conn.end();
-      reject(new Error('Timeout'));
-    }, timeout);
+      done({ host: server.host, status: 'offline', error: 'Timeout' });
+    }, 8000);
 
     conn.on('ready', () => {
-      clearTimeout(timer);
-      conn.exec('cat /root/visit_status.json 2>/dev/null || echo "none"', (err, stream) => {
+      conn.exec('cat /root/visit_status.json 2>/dev/null || echo "NONE"', (err, stream) => {
         if (err) {
-          conn.end();
-          return reject(err);
+          clearTimeout(timer);
+          return done({ host: server.host, status: 'offline', error: err.message });
         }
         let output = '';
+        stream.on('data', (data) => {
+          output += data.toString();
+        });
+        stream.stderr.on('data', () => {});
         stream.on('close', () => {
-          conn.end();
-          resolve(output.trim());
-        }).on('data', (data) => {
-          output += data;
-        }).stderr.on('data', () => {});
+          clearTimeout(timer);
+          const raw = output.trim();
+          if (raw === 'NONE' || !raw) {
+            done({ host: server.host, status: 'idle', visits: 0, target: 0, progress: 0, remaining: 0, errors: 0 });
+          } else {
+            try {
+              const data = JSON.parse(raw);
+              done({ host: server.host, ...data });
+            } catch(e) {
+              done({ host: server.host, status: 'idle', visits: 0, target: 0, progress: 0, remaining: 0, errors: 0 });
+            }
+          }
+        });
       });
-    }).on('error', (err) => {
+    });
+
+    conn.on('error', (err) => {
       clearTimeout(timer);
-      reject(err);
-    }).connect({
+      done({ host: server.host, status: 'offline', error: err.message });
+    });
+
+    conn.connect({
       host: server.host,
       port: 22,
       username: server.username,
       password: process.env.VPS_PASSWORD,
-      readyTimeout: 10000,
+      readyTimeout: 8000,
     });
   });
 }
@@ -40,22 +64,10 @@ async function getServerStatus(server, timeout = 10000) {
 export async function POST(req) {
   try {
     const { servers } = await req.json();
-    const results = [];
-
-    for (const server of servers) {
-      try {
-        const raw = await getServerStatus(server);
-        if (raw === 'none' || !raw) {
-          results.push({ host: server.host, status: 'idle', visits: 0, target: 0, progress: 0, remaining: 0, errors: 0 });
-        } else {
-          const data = JSON.parse(raw);
-          results.push({ host: server.host, ...data });
-        }
-      } catch (error) {
-        results.push({ host: server.host, status: 'offline', error: error.message });
-      }
-    }
-
+    // Query all servers in parallel for speed
+    const results = await Promise.all(
+      servers.map(server => getServerStatus(server))
+    );
     return NextResponse.json({ results });
   } catch (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
