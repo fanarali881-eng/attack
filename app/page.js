@@ -105,10 +105,21 @@ export default function Home() {
       });
       const data = await res.json();
       if (data.results) {
-        setServerStatus(data.results);
+        // Filter out old results - if no active attack, show as idle
+        const filtered = data.results.map(s => {
+          if (s.status === 'finished' && !attackStartTime) {
+            return { ...s, status: 'idle', visits: 0, target: 0, progress: 0, elapsed: 0, errors: 0 };
+          }
+          // If attack started and result timestamp is older than attack start, show as starting
+          if (s.timestamp && attackStartTime && (s.timestamp * 1000) < attackStartTime) {
+            return { ...s, status: 'starting', visits: 0, target: parseInt(visitors) ? Math.ceil(parseInt(visitors) / servers.length) : 0, progress: 0, elapsed: 0, errors: 0 };
+          }
+          return s;
+        });
+        setServerStatus(filtered);
         // Auto-stop monitoring if all servers finished
-        const allDone = data.results.every(s => s.status === 'finished' || s.status === 'idle' || s.status === 'offline');
-        if (allDone && data.results.some(s => s.status === 'finished')) {
+        const allDone = filtered.every(s => s.status === 'finished' || s.status === 'idle' || s.status === 'offline');
+        if (allDone && filtered.some(s => s.status === 'finished')) {
           stopMonitoring();
           addLog('✅ انتهت جميع العمليات على كل السيرفرات');
         }
