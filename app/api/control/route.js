@@ -88,6 +88,11 @@ export async function POST(req) {
     if (action === 'setup') {
       const results = await Promise.all(
         serverList.map(async (server) => {
+          // Check if server is already provisioned (Chrome + DrissionPage installed)
+          const check = await runSSHCommand(server, `which google-chrome && python3 -c "import DrissionPage" 2>/dev/null && echo "ALREADY_SETUP"`, 10000);
+          if (check.output && check.output.includes('ALREADY_SETUP')) {
+            return { host: server.host, success: true, output: 'Already provisioned ✅ (skipped)' };
+          }
           const r = await runSSHCommand(server, `nohup bash -c '${SETUP_COMMAND}' > /root/setup.log 2>&1 & echo "Setup started"`, 15000);
           return { host: server.host, ...r };
         })
