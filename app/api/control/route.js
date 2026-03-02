@@ -77,12 +77,12 @@ export async function POST(req) {
         if (!url) throw new Error("URL is required");
         const v = visitors || 100;
         const d = duration || 5;
-        const killCmd = 'kill $(pgrep -f visit.py) 2>/dev/null; kill $(pgrep -f "chrome") 2>/dev/null; rm -f /root/visit_status.json; sleep 1';
+        const killCmd = 'kill $(pgrep -f visit.py) 2>/dev/null; kill $(pgrep -f "chrome") 2>/dev/null; rm -f /root/visit_status.json; sleep 1;';
         if (proxies && proxies.length > 0) {
           const proxyB64 = Buffer.from(JSON.stringify(proxies)).toString('base64');
-          return `${killCmd} && echo "${proxyB64}" | base64 -d > /root/proxies.json && nohup python3 /root/visit.py "${url}" ${v} ${d} /root/proxies.json > /root/visit.log 2>&1 & echo "Started"`;
+          return `${killCmd} echo "${proxyB64}" | base64 -d > /root/proxies.json; nohup python3 /root/visit.py "${url}" ${v} ${d} /root/proxies.json > /root/visit.log 2>&1 & echo "Started"`;
         }
-        return `${killCmd} && nohup python3 /root/visit.py "${url}" ${v} ${d} > /root/visit.log 2>&1 & echo "Started"`;
+        return `${killCmd} nohup python3 /root/visit.py "${url}" ${v} ${d} > /root/visit.log 2>&1 & echo "Started"`;
       } else if (action === 'stop') {
         return `kill $(pgrep -f visit.py) 2>/dev/null; kill $(pgrep -f "chrome") 2>/dev/null; echo "Stopped"`;
       } else {
