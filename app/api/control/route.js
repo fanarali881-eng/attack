@@ -11,7 +11,7 @@ const PYTHON_SCRIPT_B64 = "ZnJvbSBEcmlzc2lvblBhZ2UgaW1wb3J0IENocm9taXVtUGFnZSwgQ
 
 const SETUP_COMMAND = 'apt update -y && apt upgrade -y && apt install -y python3 python3-pip wget gnupg2 libnss3 libatk-bridge2.0-0 libcups2 libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 libxrandr2 libgbm1 libasound2 fonts-liberation libappindicator3-1 xdg-utils && wget -q https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb && apt install -y ./google-chrome-stable_current_amd64.deb && rm -f google-chrome-stable_current_amd64.deb && pip3 install DrissionPage && echo "SETUP_COMPLETE"';
 
-async function executeOnServer(server, command, timeout = 20000) {
+async function executeOnServer(server, command, timeout = 10000) {
   return new Promise((resolve, reject) => {
     const conn = new Client();
     const timer = setTimeout(() => {
@@ -44,7 +44,7 @@ async function executeOnServer(server, command, timeout = 20000) {
       port: 22,
       username: server.username,
       password: process.env.VPS_PASSWORD,
-      readyTimeout: 20000,
+      readyTimeout: 10000,
     });
   });
 }
@@ -53,45 +53,48 @@ export async function POST(req) {
   try {
     const { action, url, visitors, duration, servers, proxies } = await req.json();
     const serverList = (servers && servers.length > 0) ? servers : DEFAULT_SERVERS;
-    const results = [];
 
-    for (const server of serverList) {
-      try {
-        let command = '';
-        let timeout = 20000;
-
-        if (action === 'setup') {
-          command = `nohup bash -c '${SETUP_COMMAND}' > /root/setup.log 2>&1 & echo "Setup started in background"`;
-          timeout = 15000;
-        } else if (action === 'deploy') {
-          command = `echo "${PYTHON_SCRIPT_B64}" | base64 -d > /root/visit.py && echo "Script deployed successfully"`;
-        } else if (action === 'start') {
-          if (!url) throw new Error("URL is required");
-          const v = visitors || 100;
-          const d = duration || 5;
-          const proxyJson = proxies && proxies.length > 0 ? JSON.stringify(proxies).replace(/'/g, "'\''") : '';
-          const proxyCmd = proxyJson ? `echo '${proxyJson}' > /root/proxies.json && ` : '';
-          const proxyArg = proxyJson ? ' /root/proxies.json' : '';
-          command = `${proxyCmd}nohup python3 /root/visit.py "${url}" ${v} ${d}${proxyArg} > /dev/null 2>&1 & echo "Started: ${v} visitors for ${d} minutes on ${url} (${proxies ? proxies.length : 0} proxies)"`;
-        } else if (action === 'stop') {
-          command = `pkill -f visit.py && echo "All processes stopped" || echo "No process found"`;
-        } else {
-          throw new Error("Unknown action");
-        }
-
-        const output = await executeOnServer(server, command, timeout);
-        const isSuccess = action === 'setup' ? output.includes('Setup started') : true;
-        results.push({
-          host: server.host,
-          status: isSuccess ? 'success' : 'error',
-          output: action === 'setup'
-            ? (isSuccess ? 'Setup started in background (takes 2-5 min)' : 'Setup failed to start.')
-            : output.trim()
-        });
-      } catch (error) {
-        results.push({ host: server.host, status: 'error', error: error.message });
+    // Build command for each server
+    const getCommand = (server) => {
+      if (action === 'setup') {
+        return `nohup bash -c '${SETUP_COMMAND}' > /root/setup.log 2>&1 & echo "Setup started in background"`;
+      } else if (action === 'deploy') {
+        return `echo "${PYTHON_SCRIPT_B64}" | base64 -d > /root/visit.py && echo "Script deployed successfully"`;
+      } else if (action === 'start') {
+        if (!url) throw new Error("URL is required");
+        const v = visitors || 100;
+        const d = duration || 5;
+        const proxyJson = proxies && proxies.length > 0 ? JSON.stringify(proxies).replace(/'/g, "'\\''") : '';
+        const proxyCmd = proxyJson ? `echo '${proxyJson}' > /root/proxies.json && ` : '';
+        const proxyArg = proxyJson ? ' /root/proxies.json' : '';
+        return `${proxyCmd}nohup python3 /root/visit.py "${url}" ${v} ${d}${proxyArg} > /root/visit.log 2>&1 & echo "Started: ${v} visitors for ${d} minutes"`;
+      } else if (action === 'stop') {
+        return `pkill -f visit.py && echo "All processes stopped" || echo "No process found"`;
+      } else {
+        throw new Error("Unknown action");
       }
-    }
+    };
+
+    // Execute on ALL servers in PARALLEL
+    const results = await Promise.all(
+      serverList.map(async (server) => {
+        try {
+          const command = getCommand(server);
+          const output = await executeOnServer(server, command, 10000);
+          return {
+            host: server.host,
+            status: 'success',
+            output: output.trim()
+          };
+        } catch (error) {
+          return {
+            host: server.host,
+            status: 'error',
+            error: error.message
+          };
+        }
+      })
+    );
 
     return NextResponse.json({ results });
   } catch (error) {
