@@ -20,7 +20,7 @@ async function fireAndForget(server, command) {
     const timer = setTimeout(() => {
       try { conn.end(); } catch(e) {}
       resolve('Command sent (timeout)');
-    }, 15000);
+    }, 8000);
 
     conn.on('ready', () => {
       conn.exec(command, (err, stream) => {
@@ -58,7 +58,7 @@ async function fireAndForget(server, command) {
       port: 22,
       username: server.username,
       password: process.env.VPS_PASSWORD,
-      readyTimeout: 15000,
+      readyTimeout: 8000,
     });
   });
 }
