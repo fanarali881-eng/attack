@@ -25,6 +25,9 @@ export default function Home() {
   const [proxyUser, setProxyUser] = useState('rbtthqr-sa');
   const [proxyPass, setProxyPass] = useState('3opjjm7k9oh2');
   const [proxyCount, setProxyCount] = useState('10');
+  const [captchaEnabled, setCaptchaEnabled] = useState(false);
+  const [captchaApiKey, setCaptchaApiKey] = useState('');
+  const [captchaService, setCaptchaService] = useState('2captcha');
   const [monitoring, setMonitoring] = useState(false);
   const [serverStatus, setServerStatus] = useState([]);
   const [attackStartTime, setAttackStartTime] = useState(null);
@@ -177,7 +180,7 @@ export default function Home() {
       const res = await fetch('/api/control', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action, url, visitors: parseInt(visitors), servers, proxies: useProxy ? buildProxyList() : [] })
+        body: JSON.stringify({ action, url, visitors: parseInt(visitors), servers, proxies: useProxy ? buildProxyList() : [], captchaApiKey: captchaEnabled ? captchaApiKey : '', captchaService: captchaEnabled ? captchaService : '' })
       });
       const data = await res.json();
 
@@ -374,6 +377,37 @@ export default function Home() {
                 </div>
               </div>
               <div style={{ marginTop: '8px', fontSize: '11px', color: '#4ade80' }}>🇸🇦 {proxyCount} بروكسي سعودي جاهز ({proxyUser}-1 إلى {proxyUser}-{proxyCount})</div>
+            </div>
+          )}
+        </div>
+
+        {/* CAPTCHA Solver */}
+        <div style={{ marginBottom: '16px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}>
+            <label style={{ fontSize: '14px', color: '#f59e0b' }}>🔓 حل الكابتشا (CAPTCHA Solver)</label>
+            <button onClick={() => setCaptchaEnabled(!captchaEnabled)} style={{ background: captchaEnabled ? '#f59e0b' : '#374151', color: captchaEnabled ? '#000' : '#fff', border: 'none', padding: '4px 16px', borderRadius: '12px', cursor: 'pointer', fontSize: '12px', fontFamily }}>
+              {captchaEnabled ? '✅ مفعّل' : '❌ معطّل'}
+            </button>
+          </div>
+          {captchaEnabled && (
+            <div style={{ border: '1px solid #92400e', borderRadius: '8px', padding: '16px', backgroundColor: '#000' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '8px', marginBottom: '8px' }}>
+                <div>
+                  <label style={{ fontSize: '11px', color: '#6b7280', marginBottom: '4px', display: 'block' }}>الخدمة</label>
+                  <select value={captchaService} onChange={(e) => setCaptchaService(e.target.value)} style={{...styles.urlInput, cursor: 'pointer'}}>
+                    <option value="2captcha">2Captcha</option>
+                    <option value="anticaptcha">Anti-Captcha</option>
+                    <option value="capsolver">CapSolver</option>
+                  </select>
+                </div>
+                <div>
+                  <label style={{ fontSize: '11px', color: '#6b7280', marginBottom: '4px', display: 'block' }}>API Key</label>
+                  <input type="text" value={captchaApiKey} onChange={(e) => setCaptchaApiKey(e.target.value)} placeholder="ادخل API Key هنا..." style={styles.urlInput} />
+                </div>
+              </div>
+              <div style={{ marginTop: '8px', fontSize: '11px', color: captchaApiKey ? '#f59e0b' : '#6b7280' }}>
+                {captchaApiKey ? `🔓 ${captchaService} جاهز - سيتم حل CAPTCHA تلقائياً` : '⚠️ ادخل API Key للتفعيل - احصل عليه من موقع الخدمة'}
+              </div>
             </div>
           )}
         </div>
