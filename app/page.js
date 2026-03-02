@@ -34,8 +34,8 @@ export default function Home() {
 
   const addLog = (msg) => setLogs(prev => [`[${new Date().toLocaleTimeString()}] ${msg}`, ...prev]);
 
-  // Estimated time display (90 visits/min per server - stealth mode with human behavior)
-  const VISITS_PER_MIN_PER_SERVER = 90;
+  // Estimated time display (120 visits/min per server - ultimate stealth with fast behavior)
+  const VISITS_PER_MIN_PER_SERVER = 120;
   const calcEstimatedSeconds = (v) => {
     const numVisitors = parseInt(v) || 0;
     if (numVisitors <= 0) return 0;
