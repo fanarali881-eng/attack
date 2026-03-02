@@ -15,7 +15,14 @@ export default function Home() {
     { host: '46.101.86.238', username: 'root' },
     { host: '138.68.153.135', username: 'root' },
     { host: '188.166.159.196', username: 'root' },
-    { host: '46.101.78.167', username: 'root' }
+    { host: '46.101.78.167', username: 'root' },
+    { host: '188.166.174.51', username: 'root' },
+    { host: '188.166.174.85', username: 'root' },
+    { host: '144.126.239.247', username: 'root' },
+    { host: '167.71.143.164', username: 'root' },
+    { host: '144.126.234.13', username: 'root' },
+    { host: '138.68.141.40', username: 'root' },
+    { host: '46.101.52.177', username: 'root' }
   ]);
   const [newHost, setNewHost] = useState('');
   const [newUsername, setNewUsername] = useState('root');
@@ -240,6 +247,24 @@ export default function Home() {
       case 'finished': return '#3b82f6';
       case 'idle': return '#6b7280';
       case 'offline': return '#ef4444';
+      default: return '#6b7280';
+    }
+  };
+
+  const getModeText = (mode) => {
+    switch(mode) {
+      case 'stealth': return '🕵️ STEALTH';
+      case 'fast': return '⚡ FAST';
+      case 'normal': return '🌐 NORMAL';
+      default: return '';
+    }
+  };
+
+  const getModeColor = (mode) => {
+    switch(mode) {
+      case 'stealth': return '#a855f7';
+      case 'fast': return '#22c55e';
+      case 'normal': return '#3b82f6';
       default: return '#6b7280';
     }
   };
@@ -477,10 +502,14 @@ export default function Home() {
               <div key={i} style={styles.serverCard}>
                 <div style={styles.serverCardHeader}>
                   <span style={styles.serverIp}>🖥️ {s.host}</span>
-                  <span style={{...styles.statusBadge, color: getStatusColor(s.status), border: `1px solid ${getStatusColor(s.status)}`}}>
-                    {getStatusText(s.status)}
-                  </span>
+                  <div style={{display:'flex', gap:'8px', alignItems:'center'}}>
+                    {s.mode && <span style={{...styles.statusBadge, color: getModeColor(s.mode), border: `1px solid ${getModeColor(s.mode)}`, fontSize:'10px'}}>{getModeText(s.mode)}</span>}
+                    <span style={{...styles.statusBadge, color: getStatusColor(s.status), border: `1px solid ${getStatusColor(s.status)}`}}>
+                      {getStatusText(s.status)}
+                    </span>
+                  </div>
                 </div>
+                {s.rate > 0 && <div style={{fontSize:'11px', color:'#4ade80', textAlign:'center', marginBottom:'8px'}}>⚡ {s.rate} زيارة/دقيقة</div>}
 
                 {s.status !== 'offline' && s.status !== 'idle' && (
                   <>
