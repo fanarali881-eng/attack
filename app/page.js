@@ -34,18 +34,29 @@ export default function Home() {
   // Auto-calculate duration based on visitors and server count
   // 25 Chrome per server × ~500 visits/min per server (with images disabled)
   const VISITS_PER_MIN_PER_SERVER = 500;
-  const calcDuration = (v) => {
+  const calcDurationSeconds = (v) => {
     const numVisitors = parseInt(v) || 0;
-    if (numVisitors <= 0) return '0';
+    if (numVisitors <= 0) return 0;
     const totalPerMin = servers.length * VISITS_PER_MIN_PER_SERVER;
-    const mins = Math.ceil(numVisitors / totalPerMin);
-    return String(Math.max(1, mins));
+    return Math.ceil((numVisitors / totalPerMin) * 60);
+  };
+  const formatDuration = (seconds) => {
+    if (seconds <= 0) return '0 ثانية';
+    if (seconds < 60) return `${seconds} ثانية`;
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    if (secs === 0) return `${mins} دقيقة`;
+    return `${mins} دقيقة و ${secs} ثانية`;
+  };
+  const calcDuration = (v) => {
+    return String(Math.max(1, Math.ceil((parseInt(v) || 0) / (servers.length * VISITS_PER_MIN_PER_SERVER))));
   };
 
   const handleVisitorsChange = (val) => {
     setVisitors(val);
     setDuration(calcDuration(val));
   };
+  const durationSeconds = calcDurationSeconds(visitors);
 
   // Recalculate duration when servers change
   useEffect(() => {
@@ -349,7 +360,7 @@ export default function Home() {
           <div style={styles.inputGroup}>
             <label style={styles.label}>⏱️ المدة المتوقعة</label>
             <div style={{...styles.numberInput, display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#0a1628', color: '#4ade80', fontSize: '18px', fontWeight: 'bold'}}>
-              {duration} دقيقة
+              {formatDuration(durationSeconds)}
             </div>
             <div style={{fontSize: '10px', color: '#6b7280', textAlign: 'center', marginTop: '4px'}}>
               {servers.length} سيرفر × {VISITS_PER_MIN_PER_SERVER} زيارة/دقيقة = {servers.length * VISITS_PER_MIN_PER_SERVER}/دقيقة
