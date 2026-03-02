@@ -61,8 +61,8 @@ export async function POST(req) {
         let timeout = 20000;
 
         if (action === 'setup') {
-          command = SETUP_COMMAND;
-          timeout = 300000;
+          command = `nohup bash -c '${SETUP_COMMAND}' > /root/setup.log 2>&1 & echo "Setup started in background"`;
+          timeout = 15000;
         } else if (action === 'deploy') {
           command = `echo "${PYTHON_SCRIPT_B64}" | base64 -d > /root/visit.py && echo "Script deployed successfully"`;
         } else if (action === 'start') {
@@ -80,12 +80,12 @@ export async function POST(req) {
         }
 
         const output = await executeOnServer(server, command, timeout);
-        const isSuccess = action === 'setup' ? output.includes('SETUP_COMPLETE') : true;
+        const isSuccess = action === 'setup' ? output.includes('Setup started') : true;
         results.push({
           host: server.host,
           status: isSuccess ? 'success' : 'error',
           output: action === 'setup'
-            ? (isSuccess ? 'Server setup completed successfully!' : 'Setup may have issues, check logs.')
+            ? (isSuccess ? 'Setup started in background (takes 2-5 min)' : 'Setup failed to start.')
             : output.trim()
         });
       } catch (error) {
