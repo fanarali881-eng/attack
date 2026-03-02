@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 export default function Home() {
   const [url, setUrl] = useState('');
   const [visitors, setVisitors] = useState('100');
-  const [duration, setDuration] = useState('5');
+  const [duration, setDuration] = useState('1');
   const [logs, setLogs] = useState([]);
   const [loading, setLoading] = useState(false);
   const [activeAction, setActiveAction] = useState('');
@@ -46,6 +46,11 @@ export default function Home() {
     setVisitors(val);
     setDuration(calcDuration(val));
   };
+
+  // Recalculate duration when servers change
+  useEffect(() => {
+    setDuration(calcDuration(visitors));
+  }, [servers.length]);
 
   // Fetch status from all servers
   const fetchStatus = async () => {
