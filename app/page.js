@@ -174,6 +174,11 @@ export default function Home() {
     }
     if (action === 'start') {
       addLog(`📊 عدد الزوار: ${visitors} | الوقت المتوقع: ~${formatDuration(estimatedSeconds)} | أقصى سرعة`);
+      // Clear old results immediately
+      stopMonitoring();
+      setServerStatus([]);
+      setAttackStartTime(null);
+      setRemainingSeconds(null);
     }
 
     try {
@@ -194,11 +199,14 @@ export default function Home() {
             addLog(`❌ ${r.host}: ${r.error}`);
           }
         });
-        // Start monitoring after starting attack
+        // Start monitoring after starting attack - delay 8 seconds for servers to clean and start
         if (action === 'start') {
           setAttackStartTime(Date.now());
           setRemainingSeconds(estimatedSeconds);
-          startMonitoring();
+          addLog('⏳ انتظار بدء العمليات على السيرفرات...');
+          setTimeout(() => {
+            startMonitoring();
+          }, 8000);
         }
         if (action === 'stop') {
           stopMonitoring();
