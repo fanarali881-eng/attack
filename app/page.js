@@ -27,7 +27,10 @@ export default function Home() {
   const [proxyCount, setProxyCount] = useState('10');
   const [monitoring, setMonitoring] = useState(false);
   const [serverStatus, setServerStatus] = useState([]);
+  const [attackStartTime, setAttackStartTime] = useState(null);
+  const [remainingSeconds, setRemainingSeconds] = useState(null);
   const intervalRef = useRef(null);
+  const countdownRef = useRef(null);
 
   const addLog = (msg) => setLogs(prev => [`[${new Date().toLocaleTimeString()}] ${msg}`, ...prev]);
 
@@ -52,6 +55,42 @@ export default function Home() {
     setVisitors(val);
   };
   const estimatedSeconds = calcEstimatedSeconds(visitors);
+
+  // Countdown timer - updates every second based on real speed
+  useEffect(() => {
+    if (attackStartTime && monitoring && serverStatus.length > 0) {
+      // Calculate real speed from actual data
+      const activeServers = serverStatus.filter(s => s.status === 'running' || s.status === 'starting');
+      const finishedServers = serverStatus.filter(s => s.status === 'finished');
+      const totalDone = serverStatus.reduce((sum, s) => sum + (s.visits || 0), 0);
+      const totalTarget = serverStatus.reduce((sum, s) => sum + (s.target || 0), 0);
+      const maxElapsed = Math.max(...serverStatus.map(s => s.elapsed || 0), 1);
+      
+      if (totalDone > 0 && totalTarget > 0) {
+        const realSpeed = totalDone / maxElapsed; // visits per second across all servers
+        const remaining = totalTarget - totalDone;
+        if (realSpeed > 0) {
+          const secsLeft = Math.ceil(remaining / realSpeed);
+          setRemainingSeconds(secsLeft);
+        }
+      }
+      
+      // All done
+      if (activeServers.length === 0 && finishedServers.length > 0) {
+        setRemainingSeconds(0);
+      }
+    }
+  }, [serverStatus, attackStartTime, monitoring]);
+
+  // Tick countdown every second
+  useEffect(() => {
+    if (remainingSeconds !== null && remainingSeconds > 0 && monitoring) {
+      countdownRef.current = setInterval(() => {
+        setRemainingSeconds(prev => prev !== null && prev > 0 ? prev - 1 : 0);
+      }, 1000);
+      return () => clearInterval(countdownRef.current);
+    }
+  }, [remainingSeconds !== null && remainingSeconds > 0, monitoring]);
 
   // Fetch status from all servers
   const fetchStatus = async () => {
@@ -154,11 +193,15 @@ export default function Home() {
         });
         // Start monitoring after starting attack
         if (action === 'start') {
+          setAttackStartTime(Date.now());
+          setRemainingSeconds(estimatedSeconds);
           startMonitoring();
         }
         if (action === 'stop') {
           stopMonitoring();
           setServerStatus([]);
+          setAttackStartTime(null);
+          setRemainingSeconds(null);
         }
       }
     } catch (err) {
@@ -349,11 +392,11 @@ export default function Home() {
           </div>
           <div style={styles.inputGroup}>
             <label style={styles.label}>⏱️ المدة المتوقعة</label>
-            <div style={{...styles.numberInput, display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#0a1628', color: '#4ade80', fontSize: '18px', fontWeight: 'bold'}}>
-              {formatDuration(estimatedSeconds)}
+            <div style={{...styles.numberInput, display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: remainingSeconds !== null ? (remainingSeconds === 0 ? '#052e16' : '#1a1a2e') : '#0a1628', color: remainingSeconds !== null ? (remainingSeconds === 0 ? '#22c55e' : '#facc15') : '#4ade80', fontSize: '18px', fontWeight: 'bold', border: remainingSeconds !== null && remainingSeconds > 0 ? '1px solid #facc15' : undefined}}>
+              {remainingSeconds !== null ? (remainingSeconds === 0 ? '✅ انتهى!' : `⏳ ${formatDuration(remainingSeconds)}`) : formatDuration(estimatedSeconds)}
             </div>
             <div style={{fontSize: '10px', color: '#6b7280', textAlign: 'center', marginTop: '4px'}}>
-              {servers.length} سيرفر × {VISITS_PER_MIN_PER_SERVER} زيارة/دقيقة | بدون حد زمني ⚡
+              {remainingSeconds !== null ? 'الوقت المتبقي بناءً على السرعة الفعلية' : `${servers.length} سيرفر × ${VISITS_PER_MIN_PER_SERVER} زيارة/دقيقة | بدون حد زمني ⚡`}
             </div>
           </div>
         </div>
