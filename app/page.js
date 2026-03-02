@@ -32,13 +32,14 @@ export default function Home() {
   const addLog = (msg) => setLogs(prev => [`[${new Date().toLocaleTimeString()}] ${msg}`, ...prev]);
 
   // Auto-calculate duration based on visitors and server count
-  // 25 Chrome per server × ~500 visits/min per server (with images disabled)
-  const VISITS_PER_MIN_PER_SERVER = 500;
+  // Realistic: ~100 visits/min per server (Chrome startup + page load + human-like delays)
+  const VISITS_PER_MIN_PER_SERVER = 100;
   const calcDurationSeconds = (v) => {
     const numVisitors = parseInt(v) || 0;
     if (numVisitors <= 0) return 0;
-    const totalPerMin = servers.length * VISITS_PER_MIN_PER_SERVER;
-    return Math.ceil((numVisitors / totalPerMin) * 60);
+    const perServer = Math.ceil(numVisitors / servers.length);
+    // Give 2x the estimated time to make sure it finishes + 2 min buffer for Chrome startup
+    return Math.ceil((perServer / VISITS_PER_MIN_PER_SERVER) * 60 * 2) + 120;
   };
   const formatDuration = (seconds) => {
     if (seconds <= 0) return '0 ثانية';
@@ -49,7 +50,11 @@ export default function Home() {
     return `${mins} دقيقة و ${secs} ثانية`;
   };
   const calcDuration = (v) => {
-    return String(Math.max(1, Math.ceil((parseInt(v) || 0) / (servers.length * VISITS_PER_MIN_PER_SERVER))));
+    const numVisitors = parseInt(v) || 0;
+    if (numVisitors <= 0) return '1';
+    const perServer = Math.ceil(numVisitors / servers.length);
+    // Give 2x estimated time + 2 min buffer so it NEVER cuts off early
+    return String(Math.max(3, Math.ceil((perServer / VISITS_PER_MIN_PER_SERVER) * 2) + 2));
   };
 
   const handleVisitorsChange = (val) => {
