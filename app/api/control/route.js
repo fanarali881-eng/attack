@@ -11,30 +11,43 @@ const PYTHON_SCRIPT_B64 = "ZnJvbSBEcmlzc2lvblBhZ2UgaW1wb3J0IENocm9taXVtUGFnZSwgQ
 
 const SETUP_COMMAND = 'apt update -y && apt upgrade -y && apt install -y python3 python3-pip wget gnupg2 libnss3 libatk-bridge2.0-0 libcups2 libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 libxrandr2 libgbm1 libasound2 fonts-liberation libappindicator3-1 xdg-utils && wget -q https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb && apt install -y ./google-chrome-stable_current_amd64.deb && rm -f google-chrome-stable_current_amd64.deb && pip3 install DrissionPage && echo "SETUP_COMPLETE"';
 
-async function executeOnServer(server, command, timeout = 10000) {
+// Fire-and-forget: connect, send command, get first line of output, disconnect immediately
+async function fireAndForget(server, command) {
   return new Promise((resolve, reject) => {
     const conn = new Client();
     const timer = setTimeout(() => {
-      conn.end();
-      reject(new Error('Connection timeout'));
-    }, timeout);
+      try { conn.end(); } catch(e) {}
+      resolve('Command sent (timeout)');
+    }, 8000);
 
     conn.on('ready', () => {
-      clearTimeout(timer);
       conn.exec(command, (err, stream) => {
         if (err) {
-          conn.end();
+          clearTimeout(timer);
+          try { conn.end(); } catch(e) {}
           return reject(err);
         }
         let output = '';
-        stream.on('close', () => {
-          conn.end();
-          resolve(output);
-        }).on('data', (data) => {
-          output += data;
-        }).stderr.on('data', (data) => {
-          output += data;
+        let done = false;
+        stream.on('data', (data) => {
+          output += data.toString();
+          // As soon as we get output with echo, resolve
+          if (!done && output.includes('\n')) {
+            done = true;
+            clearTimeout(timer);
+            try { conn.end(); } catch(e) {}
+            resolve(output.trim());
+          }
         });
+        stream.on('close', () => {
+          if (!done) {
+            done = true;
+            clearTimeout(timer);
+            try { conn.end(); } catch(e) {}
+            resolve(output.trim() || 'Command executed');
+          }
+        });
+        stream.stderr.on('data', () => {}); // ignore stderr
       });
     }).on('error', (err) => {
       clearTimeout(timer);
@@ -44,7 +57,7 @@ async function executeOnServer(server, command, timeout = 10000) {
       port: 22,
       username: server.username,
       password: process.env.VPS_PASSWORD,
-      readyTimeout: 10000,
+      readyTimeout: 5000,
     });
   });
 }
@@ -54,44 +67,39 @@ export async function POST(req) {
     const { action, url, visitors, duration, servers, proxies } = await req.json();
     const serverList = (servers && servers.length > 0) ? servers : DEFAULT_SERVERS;
 
-    // Build command for each server
-    const getCommand = (server) => {
+    // Build command for each action
+    const getCommand = () => {
       if (action === 'setup') {
-        return `nohup bash -c '${SETUP_COMMAND}' > /root/setup.log 2>&1 & echo "Setup started in background"`;
+        return `nohup bash -c '${SETUP_COMMAND}' > /root/setup.log 2>&1 & echo "Setup started"`;
       } else if (action === 'deploy') {
         return `echo "${PYTHON_SCRIPT_B64}" | base64 -d > /root/visit.py && echo "Script deployed successfully"`;
       } else if (action === 'start') {
         if (!url) throw new Error("URL is required");
         const v = visitors || 100;
         const d = duration || 5;
-        const proxyJson = proxies && proxies.length > 0 ? JSON.stringify(proxies).replace(/'/g, "'\\''") : '';
-        const proxyCmd = proxyJson ? `echo '${proxyJson}' > /root/proxies.json && ` : '';
-        const proxyArg = proxyJson ? ' /root/proxies.json' : '';
-        return `${proxyCmd}nohup python3 /root/visit.py "${url}" ${v} ${d}${proxyArg} > /root/visit.log 2>&1 & echo "Started: ${v} visitors for ${d} minutes"`;
+        // Write proxies as a separate step if needed
+        if (proxies && proxies.length > 0) {
+          const proxyB64 = Buffer.from(JSON.stringify(proxies)).toString('base64');
+          return `echo "${proxyB64}" | base64 -d > /root/proxies.json && nohup python3 /root/visit.py "${url}" ${v} ${d} /root/proxies.json > /root/visit.log 2>&1 & echo "Started"`;
+        }
+        return `nohup python3 /root/visit.py "${url}" ${v} ${d} > /root/visit.log 2>&1 & echo "Started"`;
       } else if (action === 'stop') {
-        return `pkill -f visit.py && echo "All processes stopped" || echo "No process found"`;
+        return `pkill -f visit.py 2>/dev/null; echo "Stopped"`;
       } else {
         throw new Error("Unknown action");
       }
     };
 
+    const command = getCommand();
+
     // Execute on ALL servers in PARALLEL
     const results = await Promise.all(
       serverList.map(async (server) => {
         try {
-          const command = getCommand(server);
-          const output = await executeOnServer(server, command, 10000);
-          return {
-            host: server.host,
-            status: 'success',
-            output: output.trim()
-          };
+          const output = await fireAndForget(server, command);
+          return { host: server.host, status: 'success', output };
         } catch (error) {
-          return {
-            host: server.host,
-            status: 'error',
-            error: error.message
-          };
+          return { host: server.host, status: 'error', error: error.message };
         }
       })
     );
