@@ -31,6 +31,22 @@ export default function Home() {
 
   const addLog = (msg) => setLogs(prev => [`[${new Date().toLocaleTimeString()}] ${msg}`, ...prev]);
 
+  // Auto-calculate duration based on visitors and server count
+  // 25 Chrome per server × ~500 visits/min per server (with images disabled)
+  const VISITS_PER_MIN_PER_SERVER = 500;
+  const calcDuration = (v) => {
+    const numVisitors = parseInt(v) || 0;
+    if (numVisitors <= 0) return '0';
+    const totalPerMin = servers.length * VISITS_PER_MIN_PER_SERVER;
+    const mins = Math.ceil(numVisitors / totalPerMin);
+    return String(Math.max(1, mins));
+  };
+
+  const handleVisitorsChange = (val) => {
+    setVisitors(val);
+    setDuration(calcDuration(val));
+  };
+
   // Fetch status from all servers
   const fetchStatus = async () => {
     try {
@@ -323,11 +339,16 @@ export default function Home() {
         <div style={styles.inputRow}>
           <div style={styles.inputGroup}>
             <label style={styles.label}>👥 عدد الزوار</label>
-            <input type="number" value={visitors} onChange={(e) => setVisitors(e.target.value)} placeholder="100" min="1" style={styles.numberInput} />
+            <input type="number" value={visitors} onChange={(e) => handleVisitorsChange(e.target.value)} placeholder="100" min="1" style={styles.numberInput} />
           </div>
           <div style={styles.inputGroup}>
-            <label style={styles.label}>⏱️ المدة (بالدقائق)</label>
-            <input type="number" value={duration} onChange={(e) => setDuration(e.target.value)} placeholder="5" min="1" style={styles.numberInput} />
+            <label style={styles.label}>⏱️ المدة المتوقعة</label>
+            <div style={{...styles.numberInput, display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#0a1628', color: '#4ade80', fontSize: '18px', fontWeight: 'bold'}}>
+              {duration} دقيقة
+            </div>
+            <div style={{fontSize: '10px', color: '#6b7280', textAlign: 'center', marginTop: '4px'}}>
+              {servers.length} سيرفر × {VISITS_PER_MIN_PER_SERVER} زيارة/دقيقة = {servers.length * VISITS_PER_MIN_PER_SERVER}/دقيقة
+            </div>
           </div>
         </div>
 
