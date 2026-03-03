@@ -51,16 +51,17 @@ export async function POST(req) {
         return NextResponse.json({ status: 'timeout', message: 'البروكسي لا يستجيب' });
       }
       // Try alternative: make a direct HTTP request to proxy as HTTP proxy
+      let altTimeout;
       try {
         const controller3 = new AbortController();
-        const timeout3 = setTimeout(() => controller3.abort(), 8000);
+        altTimeout = setTimeout(() => controller3.abort(), 8000);
         const res2 = await fetch(`http://${host}:${port}/`, {
           signal: controller3.signal,
           headers: {
             'Proxy-Authorization': `Basic ${proxyAuth}`,
           }
         });
-        clearTimeout(timeout3);
+        clearTimeout(altTimeout);
         if (res2.status === 402) {
           return NextResponse.json({ status: 'expired', message: 'يجب إضافة رصيد للبروكسي' });
         }
@@ -69,7 +70,7 @@ export async function POST(req) {
         }
         return NextResponse.json({ status: 'active', message: 'البروكسي شغال' });
       } catch(e2) {
-        clearTimeout(timeout3);
+        if (altTimeout) clearTimeout(altTimeout);
         return NextResponse.json({ status: 'error', message: 'تعذر الاتصال بالبروكسي' });
       }
     }
