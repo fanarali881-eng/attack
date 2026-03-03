@@ -35,8 +35,36 @@ export default function Home() {
   const [attackSummary, setAttackSummary] = useState(null);
   const intervalRef = useRef(null);
   const countdownRef = useRef(null);
+  const [proxyStatus, setProxyStatus] = useState(null); // null=unchecked, 'checking', 'active', 'expired', 'error'
 
   const addLog = (msg) => setLogs(prev => [`[${new Date().toLocaleTimeString()}] ${msg}`, ...prev]);
+
+  // Check proxy balance/validity
+  const checkProxy = async () => {
+    setProxyStatus('checking');
+    try {
+      const res = await fetch('/api/proxy-check', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ host: proxyHost, port: proxyPort, username: `${proxyUser}-1`, password: proxyPass })
+      });
+      const data = await res.json();
+      setProxyStatus(data.status);
+      if (data.status === 'expired') addLog('⚠️ البروكسي منتهي - يجب إضافة رصيد');
+      else if (data.status === 'active') addLog('✅ البروكسي شغال');
+      else addLog(`⚠️ حالة البروكسي: ${data.message}`);
+    } catch(e) {
+      setProxyStatus('error');
+      addLog('❌ فشل فحص البروكسي');
+    }
+  };
+
+  // Auto-check proxy when enabled
+  useEffect(() => {
+    if (useProxy && proxyHost && proxyPass) {
+      checkProxy();
+    }
+  }, [useProxy]);
 
   // Estimated time display (120 visits/min per server - ultimate stealth with fast behavior)
   const VISITS_PER_MIN_PER_SERVER = 120;
@@ -394,6 +422,21 @@ export default function Home() {
             <button onClick={() => setUseProxy(!useProxy)} style={{ background: useProxy ? '#22c55e' : '#374151', color: '#fff', border: 'none', padding: '4px 16px', borderRadius: '12px', cursor: 'pointer', fontSize: '12px', fontFamily }}>
               {useProxy ? '✅ مفعّل' : '❌ معطّل'}
             </button>
+            {useProxy && proxyStatus === 'expired' && (
+              <span style={{ background: '#dc2626', color: '#fff', padding: '4px 12px', borderRadius: '12px', fontSize: '12px', fontWeight: 'bold', animation: 'pulse 1.5s infinite' }}>⚠️ يجب إضافة رصيد</span>
+            )}
+            {useProxy && proxyStatus === 'active' && (
+              <span style={{ background: '#166534', color: '#4ade80', padding: '4px 12px', borderRadius: '12px', fontSize: '12px' }}>✅ الرصيد متاح</span>
+            )}
+            {useProxy && proxyStatus === 'checking' && (
+              <span style={{ background: '#374151', color: '#facc15', padding: '4px 12px', borderRadius: '12px', fontSize: '12px' }}>⏳ جاري الفحص...</span>
+            )}
+            {useProxy && (proxyStatus === 'error' || proxyStatus === 'timeout') && (
+              <span style={{ background: '#92400e', color: '#fbbf24', padding: '4px 12px', borderRadius: '12px', fontSize: '12px' }}>⚠️ تعذر فحص البروكسي</span>
+            )}
+            {useProxy && proxyStatus !== 'checking' && (
+              <button onClick={checkProxy} style={{ background: 'none', border: '1px solid #374151', color: '#9ca3af', padding: '4px 8px', borderRadius: '6px', cursor: 'pointer', fontSize: '11px', fontFamily }}>🔄 فحص</button>
+            )}
           </div>
           {useProxy && (
             <div style={{ border: '1px solid #14532d', borderRadius: '8px', padding: '16px', backgroundColor: '#000' }}>
