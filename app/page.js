@@ -39,6 +39,7 @@ export default function Home() {
   const [serverStatus, setServerStatus] = useState([]);
   const [attackStartTime, setAttackStartTime] = useState(null);
   const [remainingSeconds, setRemainingSeconds] = useState(null);
+  const [attackSummary, setAttackSummary] = useState(null);
   const intervalRef = useRef(null);
   const countdownRef = useRef(null);
 
@@ -128,7 +129,13 @@ export default function Home() {
         const allDone = filtered.every(s => s.status === 'finished' || s.status === 'idle' || s.status === 'offline');
         if (allDone && filtered.some(s => s.status === 'finished')) {
           stopMonitoring();
-          addLog('✅ انتهت جميع العمليات على كل السيرفرات');
+          const sumVisits = filtered.reduce((sum, s) => sum + (s.visits || 0), 0);
+          const sumErrors = filtered.reduce((sum, s) => sum + (s.errors || 0), 0);
+          const maxElapsed = Math.max(...filtered.map(s => s.elapsed || 0), 0);
+          const totalRate = maxElapsed > 0 ? Math.round((sumVisits / maxElapsed) * 60) : 0;
+          const userTarget = parseInt(visitors) || 0;
+          setAttackSummary({ target: userTarget, visits: sumVisits, errors: sumErrors, elapsed: maxElapsed, rate: totalRate });
+          addLog(`✅ انتهت جميع العمليات | الهدف: ${userTarget} | الزيارات الناجحة: ${sumVisits} | الفاشلة: ${sumErrors} | الوقت: ${formatTime(maxElapsed)} | السرعة: ${totalRate}/دقيقة`);
         }
       }
     } catch (err) {
@@ -221,6 +228,7 @@ export default function Home() {
         if (action === 'start') {
           setAttackStartTime(Date.now());
           setRemainingSeconds(estimatedSeconds);
+          setAttackSummary(null);
           addLog('⏳ انتظار بدء العمليات على السيرفرات...');
           setTimeout(() => {
             startMonitoring();
@@ -351,7 +359,7 @@ export default function Home() {
 
   // Calculate totals
   const totalVisits = serverStatus.reduce((sum, s) => sum + (s.visits || 0), 0);
-  const totalTarget = serverStatus.reduce((sum, s) => sum + (s.target || 0), 0);
+  const totalTarget = parseInt(visitors) || 0;  // User-entered target (not sum of server targets)
   const totalErrors = serverStatus.reduce((sum, s) => sum + (s.errors || 0), 0);
 
   return (
@@ -565,6 +573,35 @@ export default function Home() {
                 <div style={styles.totalBox}>
                   <div style={{...styles.totalValue, color: totalErrors > 0 ? '#ef4444' : '#22c55e'}}>{totalErrors}</div>
                   <div style={styles.totalLabel}>إجمالي الأخطاء</div>
+                </div>
+              </div>
+            )}
+
+            {/* Summary after completion */}
+            {attackSummary && (
+              <div style={{marginTop:'16px', padding:'20px', backgroundColor:'#0f172a', border:'2px solid #22c55e', borderRadius:'12px', textAlign:'center'}}>
+                <div style={{fontSize:'18px', color:'#22c55e', marginBottom:'16px', fontWeight:'bold'}}>✅ ملخص العملية</div>
+                <div style={{display:'grid', gridTemplateColumns:'repeat(5, 1fr)', gap:'12px'}}>
+                  <div style={{padding:'12px', backgroundColor:'#111827', borderRadius:'8px', border:'1px solid #1f2937'}}>
+                    <div style={{fontSize:'22px', fontWeight:'bold', color:'#3b82f6'}}>{attackSummary.target.toLocaleString()}</div>
+                    <div style={{fontSize:'11px', color:'#9ca3af', marginTop:'4px'}}>الهدف</div>
+                  </div>
+                  <div style={{padding:'12px', backgroundColor:'#111827', borderRadius:'8px', border:'1px solid #1f2937'}}>
+                    <div style={{fontSize:'22px', fontWeight:'bold', color:'#22c55e'}}>{attackSummary.visits.toLocaleString()}</div>
+                    <div style={{fontSize:'11px', color:'#9ca3af', marginTop:'4px'}}>زيارات ناجحة</div>
+                  </div>
+                  <div style={{padding:'12px', backgroundColor:'#111827', borderRadius:'8px', border:'1px solid #1f2937'}}>
+                    <div style={{fontSize:'22px', fontWeight:'bold', color: attackSummary.errors > 0 ? '#ef4444' : '#22c55e'}}>{attackSummary.errors.toLocaleString()}</div>
+                    <div style={{fontSize:'11px', color:'#9ca3af', marginTop:'4px'}}>زيارات فاشلة</div>
+                  </div>
+                  <div style={{padding:'12px', backgroundColor:'#111827', borderRadius:'8px', border:'1px solid #1f2937'}}>
+                    <div style={{fontSize:'22px', fontWeight:'bold', color:'#facc15'}}>{formatTime(attackSummary.elapsed)}</div>
+                    <div style={{fontSize:'11px', color:'#9ca3af', marginTop:'4px'}}>الوقت</div>
+                  </div>
+                  <div style={{padding:'12px', backgroundColor:'#111827', borderRadius:'8px', border:'1px solid #1f2937'}}>
+                    <div style={{fontSize:'22px', fontWeight:'bold', color:'#a855f7'}}>{attackSummary.rate.toLocaleString()}</div>
+                    <div style={{fontSize:'11px', color:'#9ca3af', marginTop:'4px'}}>زيارة/دقيقة</div>
+                  </div>
                 </div>
               </div>
             )}
