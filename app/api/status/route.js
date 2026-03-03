@@ -15,8 +15,9 @@ async function getServerStatus(server) {
     };
 
     const timer = setTimeout(() => {
+      try { conn.destroy(); } catch(e) {}
       done({ host: server.host, status: 'offline', error: 'Timeout' });
-    }, 8000);
+    }, 5000);
 
     conn.on('ready', () => {
       conn.exec('cat /root/visit_status.json 2>/dev/null || echo "NONE"', (err, stream) => {
@@ -56,7 +57,8 @@ async function getServerStatus(server) {
       port: 22,
       username: server.username,
       password: process.env.VPS_PASSWORD,
-      readyTimeout: 8000,
+      readyTimeout: 5000,
+      keepaliveInterval: 0,
     });
   });
 }

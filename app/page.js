@@ -146,7 +146,7 @@ export default function Home() {
   const startMonitoring = () => {
     setMonitoring(true);
     fetchStatus();
-    intervalRef.current = setInterval(fetchStatus, 5000);
+    intervalRef.current = setInterval(fetchStatus, 15000);
   };
 
   const stopMonitoring = () => {
@@ -497,7 +497,7 @@ export default function Home() {
         {(serverStatus.length > 0 || monitoring) && (
           <div style={styles.monitorPanel}>
             <div style={styles.monitorTitle}>
-              <span>📡 المراقبة الحية {monitoring && <span style={{color:'#22c55e', fontSize:'12px'}}> (تحديث كل 5 ثوان)</span>}</span>
+              <span>📡 المراقبة الحية {monitoring && <span style={{color:'#22c55e', fontSize:'12px'}}> (تحديث كل 15 ثانية)</span>}</span>
               <div style={{display:'flex', gap:'8px'}}>
                 {!monitoring && <button onClick={startMonitoring} style={{...styles.monitorRefresh, borderColor:'#22c55e', color:'#22c55e'}}>▶ تشغيل</button>}
                 {monitoring && <button onClick={stopMonitoring} style={{...styles.monitorRefresh, borderColor:'#ef4444', color:'#ef4444'}}>⏹ إيقاف</button>}
