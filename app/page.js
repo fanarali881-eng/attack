@@ -10,19 +10,12 @@ export default function Home() {
   const [activeAction, setActiveAction] = useState('');
   const [showServerPanel, setShowServerPanel] = useState(false);
   const [servers, setServers] = useState([
-    { host: '167.172.51.232', username: 'root' },
-    { host: '167.99.90.211', username: 'root' },
-    { host: '46.101.86.238', username: 'root' },
-    { host: '138.68.153.135', username: 'root' },
-    { host: '188.166.159.196', username: 'root' },
-    { host: '46.101.78.167', username: 'root' },
-    { host: '188.166.174.51', username: 'root' },
-    { host: '188.166.174.85', username: 'root' },
-    { host: '144.126.239.247', username: 'root' },
-    { host: '167.71.143.164', username: 'root' },
-    { host: '144.126.234.13', username: 'root' },
+    { host: '46.101.52.177', username: 'root' },
     { host: '138.68.141.40', username: 'root' },
-    { host: '46.101.52.177', username: 'root' }
+    { host: '144.126.234.13', username: 'root' },
+    { host: '161.35.167.208', username: 'root' },
+    { host: '167.99.192.89', username: 'root' },
+    { host: '165.22.113.176', username: 'root' }
   ]);
   const [newHost, setNewHost] = useState('');
   const [newUsername, setNewUsername] = useState('root');
