@@ -147,8 +147,10 @@ export default function Home() {
         });
         setServerStatus(filtered);
         // Auto-stop monitoring if all servers finished
-        const allDone = filtered.every(s => s.status === 'finished' || s.status === 'idle' || s.status === 'offline');
-        if (allDone && filtered.some(s => s.status === 'finished')) {
+        const activeServers = filtered.filter(s => s.status === 'running');
+        const finishedServers = filtered.filter(s => s.status === 'finished');
+        const allDone = activeServers.length === 0 && finishedServers.length > 0;
+        if (allDone) {
           stopMonitoring();
           const sumVisits = filtered.reduce((sum, s) => sum + (s.visits || 0), 0);
           const sumErrors = filtered.reduce((sum, s) => sum + (s.errors || 0), 0);
