@@ -105,7 +105,14 @@ export async function POST(req) {
       // Step 1: Kill old processes and clean up on all servers
       await Promise.all(
         serverList.map(async (server) => {
-          await runSSHCommand(server, 'kill -9 $(pgrep -f "visit.py") 2>/dev/null; killall -9 chrome 2>/dev/null; killall -9 chromium 2>/dev/null; rm -f /root/visit_status.json /root/visit.log; echo "Cleaned"', 8000);
+          await runSSHCommand(server, 'kill -9 $(pgrep -f "visit.py") 2>/dev/null; kill -9 $(pgrep -f "proxy_relay.py") 2>/dev/null; killall -9 chrome 2>/dev/null; killall -9 chromium 2>/dev/null; rm -f /root/visit_status.json /root/visit.log; echo "Cleaned"', 8000);
+        })
+      );
+
+      // Step 1.5: Start local proxy relay on each server
+      await Promise.all(
+        serverList.map(async (server) => {
+          await runSSHCommand(server, 'kill -9 $(pgrep -f "proxy_relay.py") 2>/dev/null; sleep 0.5; nohup python3 /root/proxy_relay.py > /root/relay.log 2>&1 & sleep 1; echo "Relay started"', 8000);
         })
       );
 
@@ -129,7 +136,7 @@ export async function POST(req) {
     } else if (action === 'stop') {
       const results = await Promise.all(
         serverList.map(async (server) => {
-          const r = await runSSHCommand(server, 'kill -9 $(pgrep -f "visit.py") 2>/dev/null; killall -9 chrome 2>/dev/null; killall -9 chromium 2>/dev/null; rm -f /root/visit_status.json; echo "Stopped"', 10000);
+          const r = await runSSHCommand(server, 'kill -9 $(pgrep -f "visit.py") 2>/dev/null; kill -9 $(pgrep -f "proxy_relay.py") 2>/dev/null; killall -9 chrome 2>/dev/null; killall -9 chromium 2>/dev/null; rm -f /root/visit_status.json; echo "Stopped"', 10000);
           return { host: server.host, ...r };
         })
       );
