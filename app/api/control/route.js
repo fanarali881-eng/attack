@@ -185,7 +185,7 @@ export async function POST(req) {
       // Step 1: Kill old processes and clean up
       await Promise.all(
         serverList.map(async (server) => {
-          await runSSHCommand(server, 'kill -9 $(pgrep -f "visit.py") 2>/dev/null; kill -9 $(pgrep -f "proxy_relay.py") 2>/dev/null; killall -9 chrome 2>/dev/null; killall -9 chromium 2>/dev/null; rm -f /root/visit_status.json /root/visit.log; echo "Cleaned"', 8000);
+          await runSSHCommand(server, 'kill -9 $(pgrep -f "visit.py") 2>/dev/null; kill -9 $(pgrep -f "proxy_relay.py") 2>/dev/null; killall -9 chrome 2>/dev/null; killall -9 chromium 2>/dev/null; fuser -k 18080/tcp 2>/dev/null; sleep 1; fuser -k 18080/tcp 2>/dev/null; rm -f /root/visit_status.json /root/visit.log; echo "Cleaned"', 10000);
         })
       );
 
@@ -196,7 +196,7 @@ export async function POST(req) {
         const relayB64 = Buffer.from(relayScript).toString('base64');
         await Promise.all(
           serverList.map(async (server) => {
-            await runSSHCommand(server, 'echo "' + relayB64 + '" | base64 -d > /root/proxy_relay.py && nohup python3 /root/proxy_relay.py > /root/relay.log 2>&1 & sleep 1 && echo "Relay OK"', 10000);
+            await runSSHCommand(server, 'fuser -k 18080/tcp 2>/dev/null; sleep 1; echo "' + relayB64 + '" | base64 -d > /root/proxy_relay.py && nohup python3 /root/proxy_relay.py > /root/relay.log 2>&1 & sleep 2 && ss -tlnp | grep -q 18080 && echo "Relay OK" || echo "Relay FAIL"', 12000);
           })
         );
       }
