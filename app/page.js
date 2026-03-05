@@ -10,25 +10,26 @@ export default function Home() {
   const [activeAction, setActiveAction] = useState('');
   const [showServerPanel, setShowServerPanel] = useState(false);
   const [servers, setServers] = useState([
-    // Working servers (updated 2026-03-05)
+    { host: '46.101.52.177', username: 'root' },
     { host: '138.68.141.40', username: 'root' },
     { host: '144.126.234.13', username: 'root' },
-    { host: '46.101.52.177', username: 'root' },
+    { host: '161.35.167.208', username: 'root' },
     { host: '167.99.192.89', username: 'root' },
-    { host: '138.68.154.253', username: 'root' },
-    { host: '159.65.57.39', username: 'root' },
-    { host: '68.183.33.236', username: 'root' },
+    { host: '165.22.113.176', username: 'root' },
     { host: '165.227.224.130', username: 'root' },
-    { host: '167.172.50.122', username: 'root' },
+    { host: '68.183.33.236', username: 'root' },
+    { host: '159.65.57.39', username: 'root' },
     { host: '188.166.170.15', username: 'root' },
+    { host: '167.172.50.122', username: 'root' },
+    { host: '138.68.154.253', username: 'root' }
   ]);
   const [newHost, setNewHost] = useState('');
   const [newUsername, setNewUsername] = useState('root');
   const [useProxy, setUseProxy] = useState(true);
-  const [proxyHost, setProxyHost] = useState('p.webshare.io');
-  const [proxyPort, setProxyPort] = useState('80');
-  const [proxyUser, setProxyUser] = useState('rbtthqr-sa');
-  const [proxyPass, setProxyPass] = useState('3opjjm7k9oh2');
+  const [proxyHost, setProxyHost] = useState('proxy.packetstream.io');
+  const [proxyPort, setProxyPort] = useState('31112');
+  const [proxyUser, setProxyUser] = useState('fanar');
+  const [proxyPass, setProxyPass] = useState('j7HGTQiRnys66RIM_country-SaudiArabia');
   const [proxyCount, setProxyCount] = useState('10');
   const [captchaEnabled, setCaptchaEnabled] = useState(false);
   const [captchaApiKey, setCaptchaApiKey] = useState('');
@@ -37,10 +38,39 @@ export default function Home() {
   const [serverStatus, setServerStatus] = useState([]);
   const [attackStartTime, setAttackStartTime] = useState(null);
   const [remainingSeconds, setRemainingSeconds] = useState(null);
+  const [attackSummary, setAttackSummary] = useState(null);
   const intervalRef = useRef(null);
   const countdownRef = useRef(null);
+  const [proxyStatus, setProxyStatus] = useState(null); // null=unchecked, 'checking', 'active', 'expired', 'error'
 
   const addLog = (msg) => setLogs(prev => [`[${new Date().toLocaleTimeString()}] ${msg}`, ...prev]);
+
+  // Check proxy balance/validity
+  const checkProxy = async () => {
+    setProxyStatus('checking');
+    try {
+      const res = await fetch('/api/proxy-check', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ host: proxyHost, port: proxyPort, username: proxyUser, password: proxyPass })
+      });
+      const data = await res.json();
+      setProxyStatus(data.status);
+      if (data.status === 'expired') addLog('⚠️ البروكسي منتهي - يجب إضافة رصيد');
+      else if (data.status === 'active') addLog('✅ البروكسي شغال');
+      else addLog(`⚠️ حالة البروكسي: ${data.message}`);
+    } catch(e) {
+      setProxyStatus('error');
+      addLog('❌ فشل فحص البروكسي');
+    }
+  };
+
+  // Auto-check proxy when enabled
+  useEffect(() => {
+    if (useProxy && proxyHost && proxyPass) {
+      checkProxy();
+    }
+  }, [useProxy]);
 
   // Estimated time display (120 visits/min per server - ultimate stealth with fast behavior)
   const VISITS_PER_MIN_PER_SERVER = 120;
@@ -123,10 +153,18 @@ export default function Home() {
         });
         setServerStatus(filtered);
         // Auto-stop monitoring if all servers finished
-        const allDone = filtered.every(s => s.status === 'finished' || s.status === 'idle' || s.status === 'offline');
-        if (allDone && filtered.some(s => s.status === 'finished')) {
+        const activeServers = filtered.filter(s => s.status === 'running');
+        const finishedServers = filtered.filter(s => s.status === 'finished');
+        const allDone = activeServers.length === 0 && finishedServers.length > 0;
+        if (allDone) {
           stopMonitoring();
-          addLog('✅ انتهت جميع العمليات على كل السيرفرات');
+          const sumVisits = filtered.reduce((sum, s) => sum + (s.visits || 0), 0);
+          const sumErrors = filtered.reduce((sum, s) => sum + (s.errors || 0), 0);
+          const maxElapsed = Math.max(...filtered.map(s => s.elapsed || 0), 0);
+          const totalRate = maxElapsed > 0 ? Math.round((sumVisits / maxElapsed) * 60) : 0;
+          const userTarget = parseInt(visitors) || 0;
+          setAttackSummary({ target: userTarget, visits: sumVisits, errors: sumErrors, elapsed: maxElapsed, rate: totalRate });
+          addLog(`✅ انتهت جميع العمليات | الهدف: ${userTarget} | الزيارات الناجحة: ${sumVisits} | الفاشلة: ${sumErrors} | الوقت: ${formatTime(maxElapsed)} | السرعة: ${totalRate}/دقيقة`);
         }
       }
     } catch (err) {
@@ -137,7 +175,7 @@ export default function Home() {
   const startMonitoring = () => {
     setMonitoring(true);
     fetchStatus();
-    intervalRef.current = setInterval(fetchStatus, 5000);
+    intervalRef.current = setInterval(fetchStatus, 15000);
   };
 
   const stopMonitoring = () => {
@@ -219,6 +257,7 @@ export default function Home() {
         if (action === 'start') {
           setAttackStartTime(Date.now());
           setRemainingSeconds(estimatedSeconds);
+          setAttackSummary(null);
           addLog('⏳ انتظار بدء العمليات على السيرفرات...');
           setTimeout(() => {
             startMonitoring();
@@ -249,6 +288,24 @@ export default function Home() {
     }
   };
 
+  const getModeText = (mode) => {
+    switch(mode) {
+      case 'stealth': return '🕵️ STEALTH';
+      case 'fast': return '⚡ FAST';
+      case 'normal': return '🌐 NORMAL';
+      default: return '';
+    }
+  };
+
+  const getModeColor = (mode) => {
+    switch(mode) {
+      case 'stealth': return '#a855f7';
+      case 'fast': return '#22c55e';
+      case 'normal': return '#3b82f6';
+      default: return '#6b7280';
+    }
+  };
+
   const getStatusText = (status) => {
     switch(status) {
       case 'running': return '🟢 شغال';
@@ -270,7 +327,7 @@ export default function Home() {
     const list = [];
     const count = parseInt(proxyCount) || 10;
     for (let i = 1; i <= count; i++) {
-      list.push({ host: proxyHost, port: proxyPort, username: `${proxyUser}-${i}`, password: proxyPass });
+      list.push({ host: proxyHost, port: proxyPort, username: proxyUser, password: proxyPass });
     }
     return list;
   };
@@ -331,7 +388,7 @@ export default function Home() {
 
   // Calculate totals
   const totalVisits = serverStatus.reduce((sum, s) => sum + (s.visits || 0), 0);
-  const totalTarget = serverStatus.reduce((sum, s) => sum + (s.target || 0), 0);
+  const totalTarget = parseInt(visitors) || 0;  // User-entered target (not sum of server targets)
   const totalErrors = serverStatus.reduce((sum, s) => sum + (s.errors || 0), 0);
 
   return (
@@ -373,6 +430,21 @@ export default function Home() {
             <button onClick={() => setUseProxy(!useProxy)} style={{ background: useProxy ? '#22c55e' : '#374151', color: '#fff', border: 'none', padding: '4px 16px', borderRadius: '12px', cursor: 'pointer', fontSize: '12px', fontFamily }}>
               {useProxy ? '✅ مفعّل' : '❌ معطّل'}
             </button>
+            {useProxy && proxyStatus === 'expired' && (
+              <span style={{ background: '#dc2626', color: '#fff', padding: '4px 12px', borderRadius: '12px', fontSize: '12px', fontWeight: 'bold', animation: 'pulse 1.5s infinite' }}>⚠️ يجب إضافة رصيد</span>
+            )}
+            {useProxy && proxyStatus === 'active' && (
+              <span style={{ background: '#166534', color: '#4ade80', padding: '4px 12px', borderRadius: '12px', fontSize: '12px' }}>✅ الرصيد متاح</span>
+            )}
+            {useProxy && proxyStatus === 'checking' && (
+              <span style={{ background: '#374151', color: '#facc15', padding: '4px 12px', borderRadius: '12px', fontSize: '12px' }}>⏳ جاري الفحص...</span>
+            )}
+            {useProxy && (proxyStatus === 'error' || proxyStatus === 'timeout') && (
+              <span style={{ background: '#92400e', color: '#fbbf24', padding: '4px 12px', borderRadius: '12px', fontSize: '12px' }}>⚠️ تعذر فحص البروكسي</span>
+            )}
+            {useProxy && proxyStatus !== 'checking' && (
+              <button onClick={checkProxy} style={{ background: 'none', border: '1px solid #374151', color: '#9ca3af', padding: '4px 8px', borderRadius: '6px', cursor: 'pointer', fontSize: '11px', fontFamily }}>🔄 فحص</button>
+            )}
           </div>
           {useProxy && (
             <div style={{ border: '1px solid #14532d', borderRadius: '8px', padding: '16px', backgroundColor: '#000' }}>
@@ -388,7 +460,7 @@ export default function Home() {
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px' }}>
                 <div>
-                  <label style={{ fontSize: '11px', color: '#6b7280', marginBottom: '4px', display: 'block' }}>Username Prefix</label>
+                  <label style={{ fontSize: '11px', color: '#6b7280', marginBottom: '4px', display: 'block' }}>Username</label>
                   <input type="text" value={proxyUser} onChange={(e) => setProxyUser(e.target.value)} style={styles.urlInput} />
                 </div>
                 <div>
@@ -400,7 +472,7 @@ export default function Home() {
                   <input type="number" value={proxyCount} onChange={(e) => setProxyCount(e.target.value)} min="1" max="50" style={styles.urlInput} />
                 </div>
               </div>
-              <div style={{ marginTop: '8px', fontSize: '11px', color: '#4ade80' }}>🇸🇦 {proxyCount} بروكسي سعودي جاهز ({proxyUser}-1 إلى {proxyUser}-{proxyCount})</div>
+              <div style={{ marginTop: '8px', fontSize: '11px', color: '#4ade80' }}>🇸🇦 بروكسي سعودي جاهز - PacketStream ({proxyUser})</div>
             </div>
           )}
         </div>
@@ -469,7 +541,7 @@ export default function Home() {
         {(serverStatus.length > 0 || monitoring) && (
           <div style={styles.monitorPanel}>
             <div style={styles.monitorTitle}>
-              <span>📡 المراقبة الحية {monitoring && <span style={{color:'#22c55e', fontSize:'12px'}}> (تحديث كل 5 ثوان)</span>}</span>
+              <span>📡 المراقبة الحية {monitoring && <span style={{color:'#22c55e', fontSize:'12px'}}> (تحديث كل 15 ثانية)</span>}</span>
               <div style={{display:'flex', gap:'8px'}}>
                 {!monitoring && <button onClick={startMonitoring} style={{...styles.monitorRefresh, borderColor:'#22c55e', color:'#22c55e'}}>▶ تشغيل</button>}
                 {monitoring && <button onClick={stopMonitoring} style={{...styles.monitorRefresh, borderColor:'#ef4444', color:'#ef4444'}}>⏹ إيقاف</button>}
@@ -482,10 +554,14 @@ export default function Home() {
               <div key={i} style={styles.serverCard}>
                 <div style={styles.serverCardHeader}>
                   <span style={styles.serverIp}>🖥️ {s.host}</span>
-                  <span style={{...styles.statusBadge, color: getStatusColor(s.status), border: `1px solid ${getStatusColor(s.status)}`}}>
-                    {getStatusText(s.status)}
-                  </span>
+                  <div style={{display:'flex', gap:'8px', alignItems:'center'}}>
+                    {s.mode && <span style={{...styles.statusBadge, color: getModeColor(s.mode), border: `1px solid ${getModeColor(s.mode)}`, fontSize:'10px'}}>{getModeText(s.mode)}</span>}
+                    <span style={{...styles.statusBadge, color: getStatusColor(s.status), border: `1px solid ${getStatusColor(s.status)}`}}>
+                      {getStatusText(s.status)}
+                    </span>
+                  </div>
                 </div>
+                {s.rate > 0 && <div style={{fontSize:'11px', color:'#4ade80', textAlign:'center', marginBottom:'8px'}}>⚡ {s.rate} زيارة/دقيقة</div>}
 
                 {s.status !== 'offline' && s.status !== 'idle' && (
                   <>
@@ -541,6 +617,35 @@ export default function Home() {
                 <div style={styles.totalBox}>
                   <div style={{...styles.totalValue, color: totalErrors > 0 ? '#ef4444' : '#22c55e'}}>{totalErrors}</div>
                   <div style={styles.totalLabel}>إجمالي الأخطاء</div>
+                </div>
+              </div>
+            )}
+
+            {/* Summary after completion */}
+            {attackSummary && (
+              <div style={{marginTop:'16px', padding:'20px', backgroundColor:'#0f172a', border:'2px solid #22c55e', borderRadius:'12px', textAlign:'center'}}>
+                <div style={{fontSize:'18px', color:'#22c55e', marginBottom:'16px', fontWeight:'bold'}}>✅ ملخص العملية</div>
+                <div style={{display:'grid', gridTemplateColumns:'repeat(5, 1fr)', gap:'12px'}}>
+                  <div style={{padding:'12px', backgroundColor:'#111827', borderRadius:'8px', border:'1px solid #1f2937'}}>
+                    <div style={{fontSize:'22px', fontWeight:'bold', color:'#3b82f6'}}>{attackSummary.target.toLocaleString()}</div>
+                    <div style={{fontSize:'11px', color:'#9ca3af', marginTop:'4px'}}>الهدف</div>
+                  </div>
+                  <div style={{padding:'12px', backgroundColor:'#111827', borderRadius:'8px', border:'1px solid #1f2937'}}>
+                    <div style={{fontSize:'22px', fontWeight:'bold', color:'#22c55e'}}>{attackSummary.visits.toLocaleString()}</div>
+                    <div style={{fontSize:'11px', color:'#9ca3af', marginTop:'4px'}}>زيارات ناجحة</div>
+                  </div>
+                  <div style={{padding:'12px', backgroundColor:'#111827', borderRadius:'8px', border:'1px solid #1f2937'}}>
+                    <div style={{fontSize:'22px', fontWeight:'bold', color: attackSummary.errors > 0 ? '#ef4444' : '#22c55e'}}>{attackSummary.errors.toLocaleString()}</div>
+                    <div style={{fontSize:'11px', color:'#9ca3af', marginTop:'4px'}}>زيارات فاشلة</div>
+                  </div>
+                  <div style={{padding:'12px', backgroundColor:'#111827', borderRadius:'8px', border:'1px solid #1f2937'}}>
+                    <div style={{fontSize:'22px', fontWeight:'bold', color:'#facc15'}}>{formatTime(attackSummary.elapsed)}</div>
+                    <div style={{fontSize:'11px', color:'#9ca3af', marginTop:'4px'}}>الوقت</div>
+                  </div>
+                  <div style={{padding:'12px', backgroundColor:'#111827', borderRadius:'8px', border:'1px solid #1f2937'}}>
+                    <div style={{fontSize:'22px', fontWeight:'bold', color:'#a855f7'}}>{attackSummary.rate.toLocaleString()}</div>
+                    <div style={{fontSize:'11px', color:'#9ca3af', marginTop:'4px'}}>زيارة/دقيقة</div>
+                  </div>
                 </div>
               </div>
             )}
