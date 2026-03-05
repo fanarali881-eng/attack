@@ -40,15 +40,16 @@ cf_ua = ''
 
 # === FINGERPRINT DATA ===
 USER_AGENTS = [
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
-    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:123.0) Gecko/20100101 Firefox/123.0',
-    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Safari/605.1.15',
     'Mozilla/5.0 (iPhone; CPU iPhone OS 17_3 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Mobile/15E148 Safari/604.1',
+    'Mozilla/5.0 (iPhone; CPU iPhone OS 17_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.1 Mobile/15E148 Safari/604.1',
+    'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1',
+    'Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/122.0.6261.89 Mobile/15E148 Safari/604.1',
     'Mozilla/5.0 (Linux; Android 14; SM-S918B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Mobile Safari/537.36',
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36 Edg/122.0.0.0',
+    'Mozilla/5.0 (Linux; Android 14; SM-S911B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Mobile Safari/537.36',
+    'Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Mobile Safari/537.36',
+    'Mozilla/5.0 (Linux; Android 13; SM-A546B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Mobile Safari/537.36',
+    'Mozilla/5.0 (iPhone; CPU iPhone OS 17_3_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Mobile/15E148 Safari/604.1',
+    'Mozilla/5.0 (Linux; Android 14; SM-G991B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Mobile Safari/537.36',
 ]
 REFERRERS = [
     'https://www.google.com/', 'https://www.google.com/search?q=site',
@@ -60,10 +61,10 @@ REFERRERS = [
 
 def get_stealth_js():
     ua = random.choice(USER_AGENTS)
-    is_mobile = 'iPhone' in ua or 'Android' in ua
-    platform = 'iPhone' if 'iPhone' in ua else ('Linux armv8l' if 'Android' in ua else random.choice(['Win32','MacIntel']))
-    cores = random.choice([2,4] if is_mobile else [4,8,12,16])
-    memory = random.choice([4,6] if is_mobile else [4,8,16,32])
+    is_mobile = True  # Always mobile
+    platform = 'iPhone' if 'iPhone' in ua else 'Linux armv8l'
+    cores = random.choice([2,4])
+    memory = random.choice([4,6])
     ref = random.choice(REFERRERS)
     ref_js = f'Object.defineProperty(document,"referrer",{{get:()=>"{ref}"}});' if ref else ''
     return f"""
@@ -123,7 +124,7 @@ def get_cf_cookies_browser(target_url):
             options.add_argument("--no-sandbox")
             options.add_argument("--disable-dev-shm-usage")
             options.add_argument("--disable-gpu")
-            options.add_argument("--window-size=1920,1080")
+            options.add_argument("--window-size=412,915")
             options.add_argument(f"--user-agent={ua}")
             if USE_PROXIES:
                 options.add_argument(f"--proxy-server=http://{PROXY_RELAY_HOST}:{PROXY_RELAY_PORT}")
@@ -135,7 +136,7 @@ def get_cf_cookies_browser(target_url):
             opts.add_argument("--disable-dev-shm-usage")
             opts.add_argument("--disable-gpu")
             opts.add_argument("--disable-blink-features=AutomationControlled")
-            opts.add_argument("--window-size=1920,1080")
+            opts.add_argument("--window-size=412,915")
             opts.add_argument(f"--user-agent={ua}")
             opts.add_experimental_option('excludeSwitches', ['enable-automation'])
             opts.add_experimental_option('useAutomationExtension', False)
@@ -286,7 +287,7 @@ def browser_worker(bid, target_url, max_visits, start_time):
                 options.add_argument("--no-sandbox")
                 options.add_argument("--disable-dev-shm-usage")
                 options.add_argument("--disable-gpu")
-                options.add_argument("--window-size=1920,1080")
+                options.add_argument("--window-size=412,915")
                 options.add_argument("--js-flags=--max-old-space-size=96")
                 options.add_argument(f"--user-agent={ua}")
                 if USE_PROXIES:
@@ -299,7 +300,7 @@ def browser_worker(bid, target_url, max_visits, start_time):
                 opts.add_argument("--disable-dev-shm-usage")
                 opts.add_argument("--disable-gpu")
                 opts.add_argument("--disable-blink-features=AutomationControlled")
-                opts.add_argument("--window-size=1920,1080")
+                opts.add_argument("--window-size=412,915")
                 opts.add_argument("--js-flags=--max-old-space-size=96")
                 opts.add_argument(f"--user-agent={ua}")
                 opts.add_experimental_option('excludeSwitches', ['enable-automation'])
