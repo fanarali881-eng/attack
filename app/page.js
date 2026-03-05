@@ -15,7 +15,13 @@ export default function Home() {
     { host: '144.126.234.13', username: 'root' },
     { host: '161.35.167.208', username: 'root' },
     { host: '167.99.192.89', username: 'root' },
-    { host: '165.22.113.176', username: 'root' }
+    { host: '165.22.113.176', username: 'root' },
+    { host: '165.227.224.130', username: 'root' },
+    { host: '68.183.33.236', username: 'root' },
+    { host: '159.65.57.39', username: 'root' },
+    { host: '188.166.170.15', username: 'root' },
+    { host: '167.172.50.122', username: 'root' },
+    { host: '138.68.154.253', username: 'root' }
   ]);
   const [newHost, setNewHost] = useState('');
   const [newUsername, setNewUsername] = useState('root');
@@ -454,7 +460,7 @@ export default function Home() {
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px' }}>
                 <div>
-                  <label style={{ fontSize: '11px', color: '#6b7280', marginBottom: '4px', display: 'block' }}>Username Prefix</label>
+                  <label style={{ fontSize: '11px', color: '#6b7280', marginBottom: '4px', display: 'block' }}>Username</label>
                   <input type="text" value={proxyUser} onChange={(e) => setProxyUser(e.target.value)} style={styles.urlInput} />
                 </div>
                 <div>
@@ -466,7 +472,7 @@ export default function Home() {
                   <input type="number" value={proxyCount} onChange={(e) => setProxyCount(e.target.value)} min="1" max="50" style={styles.urlInput} />
                 </div>
               </div>
-              <div style={{ marginTop: '8px', fontSize: '11px', color: '#4ade80' }}>🇸🇦 {proxyCount} بروكسي سعودي جاهز ({proxyUser}-1 إلى {proxyUser}-{proxyCount})</div>
+              <div style={{ marginTop: '8px', fontSize: '11px', color: '#4ade80' }}>🇸🇦 بروكسي سعودي جاهز - PacketStream ({proxyUser})</div>
             </div>
           )}
         </div>
