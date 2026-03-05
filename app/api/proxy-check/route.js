@@ -56,55 +56,48 @@ export async function POST(req) {
   try {
     const { host, port, username, password } = await req.json();
 
-    // Test PacketStream proxy: get IP and check if it works
+    // Test proxy: first get IP, then check country
     const proxyUrl = `http://${username}:${password}@${host}:${port}`;
-    const cmd = `curl -s -x "${proxyUrl}" --connect-timeout 15 https://ipapi.co/json/ 2>&1`;
+    const cmd = `IP=$(curl -s -x "${proxyUrl}" --connect-timeout 15 https://ipv4.icanhazip.com 2>/dev/null); echo "IP:$IP"; if [ -n "$IP" ]; then curl -s "http://ip-api.com/json/$IP" --connect-timeout 10 2>/dev/null; fi`;
 
-    const result = await runSSHCommand(TEST_SERVER, cmd, 20000);
+    const result = await runSSHCommand(TEST_SERVER, cmd, 25000);
 
     if (result.status === 'error') {
       return NextResponse.json({ status: 'error', message: 'تعذر الاتصال بالسيرفر للفحص' });
     }
 
     const output = result.output.trim();
+    const lines = output.split('\n');
+    const ipLine = lines[0] || '';
+    const ip = ipLine.replace('IP:', '').trim();
 
-    // Try to parse JSON response from ipapi.co
-    try {
-      const ipInfo = JSON.parse(output);
-      if (ipInfo.ip && ipInfo.country_code) {
-        const isSaudi = ipInfo.country_code === 'SA';
-        return NextResponse.json({ 
-          status: 'active', 
-          message: `البروكسي شغال ✅ | IP: ${ipInfo.ip} | الدولة: ${ipInfo.country_name || ipInfo.country_code}${isSaudi ? ' 🇸🇦' : ' ⚠️ ليس سعودي!'}` 
-        });
+    if (!ip) {
+      // No IP returned - proxy failed
+      if (output.includes('407') || output.includes('Auth')) {
+        return NextResponse.json({ status: 'error', message: 'خطأ بالمصادقة - تأكد من اسم المستخدم وكلمة المرور' });
       }
-      // If we got JSON but no IP, might be an error
-      if (ipInfo.error) {
-        return NextResponse.json({ status: 'error', message: `خطأ: ${ipInfo.reason || ipInfo.error}` });
+      if (output.includes('402') || output.includes('Payment') || output.includes('bandwidth')) {
+        return NextResponse.json({ status: 'expired', message: '⚠️ الرصيد خلص - يجب إضافة رصيد' });
       }
-    } catch(e) {
-      // Not JSON - check for common errors
-    }
-
-    // Check for auth errors or empty response
-    if (output === '' || output.includes('000') || output.includes('Connection refused')) {
       return NextResponse.json({ status: 'error', message: 'تعذر الاتصال بالبروكسي - تأكد من البيانات' });
     }
 
-    if (output.includes('407') || output.includes('Auth') || output.includes('auth')) {
-      return NextResponse.json({ status: 'error', message: 'خطأ بالمصادقة - تأكد من اسم المستخدم وكلمة المرور' });
+    // Got IP - try to parse country info
+    const jsonStr = lines.slice(1).join('\n');
+    try {
+      const info = JSON.parse(jsonStr);
+      if (info.status === 'success') {
+        const isSaudi = info.countryCode === 'SA';
+        return NextResponse.json({ 
+          status: 'active', 
+          message: `البروكسي شغال ✅ | IP: ${ip} | ${info.country}${isSaudi ? ' 🇸🇦' : ' ⚠️'}` 
+        });
+      }
+    } catch(e) {
+      // Could not get country info but proxy works
     }
 
-    if (output.includes('402') || output.includes('Payment') || output.includes('bandwidth')) {
-      return NextResponse.json({ status: 'expired', message: '⚠️ الرصيد خلص - يجب إضافة رصيد' });
-    }
-
-    // If we got some HTML response, proxy might be working
-    if (output.includes('<!') || output.includes('<html')) {
-      return NextResponse.json({ status: 'active', message: 'البروكسي شغال ✅ (تعذر تحديد الدولة)' });
-    }
-
-    return NextResponse.json({ status: 'error', message: `رد غير متوقع: ${output.substring(0, 100)}` });
+    return NextResponse.json({ status: 'active', message: `البروكسي شغال ✅ | IP: ${ip}` });
 
   } catch (error) {
     return NextResponse.json({ status: 'error', message: error.message }, { status: 500 });

@@ -29,7 +29,7 @@ export default function Home() {
   const [proxyHost, setProxyHost] = useState('proxy.packetstream.io');
   const [proxyPort, setProxyPort] = useState('31112');
   const [proxyUser, setProxyUser] = useState('fanar');
-  const [proxyPass, setProxyPass] = useState('j7HGTQiRnys66RlM_country-SaudiArabia');
+  const [proxyPass, setProxyPass] = useState('j7HGTQiRnys66RIM_country-SaudiArabia');
   const [proxyCount, setProxyCount] = useState('10');
   const [captchaEnabled, setCaptchaEnabled] = useState(false);
   const [captchaApiKey, setCaptchaApiKey] = useState('');
