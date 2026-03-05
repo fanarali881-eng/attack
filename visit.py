@@ -127,7 +127,7 @@ def get_cf_cookies_browser(target_url):
             options.add_argument(f"--user-agent={ua}")
             if USE_PROXIES:
                 options.add_argument(f"--proxy-server=http://{PROXY_RELAY_HOST}:{PROXY_RELAY_PORT}")
-            driver = uc.Chrome(options=options, headless=True)
+            driver = uc.Chrome(options=options, headless=True, driver_executable_path='/usr/local/bin/chromedriver')
         elif HAS_SELENIUM:
             opts = Options()
             opts.add_argument("--headless=new")
@@ -291,7 +291,7 @@ def browser_worker(bid, target_url, max_visits, start_time):
                 options.add_argument(f"--user-agent={ua}")
                 if USE_PROXIES:
                     options.add_argument(f"--proxy-server=http://{PROXY_RELAY_HOST}:{PROXY_RELAY_PORT}")
-                driver = uc.Chrome(options=options, headless=True)
+                driver = uc.Chrome(options=options, headless=True, driver_executable_path='/usr/local/bin/chromedriver')
             elif HAS_SELENIUM:
                 opts = Options()
                 opts.add_argument("--headless=new")
