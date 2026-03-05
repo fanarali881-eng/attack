@@ -9,7 +9,13 @@ const DEFAULT_SERVERS = [
   { host: '144.126.234.13', username: 'root' },
   { host: '161.35.167.208', username: 'root' },
   { host: '167.99.192.89', username: 'root' },
-  { host: '165.22.113.176', username: 'root' }
+  { host: '165.22.113.176', username: 'root' },
+  { host: '165.227.224.130', username: 'root' },
+  { host: '68.183.33.236', username: 'root' },
+  { host: '159.65.57.39', username: 'root' },
+  { host: '188.166.170.15', username: 'root' },
+  { host: '167.172.50.122', username: 'root' },
+  { host: '138.68.154.253', username: 'root' }
 ];
 
 const SETUP_COMMAND = 'export DEBIAN_FRONTEND=noninteractive && apt-get update -y && apt-get install -y python3 python3-pip wget gnupg2 libnss3 libatk-bridge2.0-0 libcups2 libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 libxrandr2 libgbm1 fonts-liberation xdg-utils && (apt-get install -y libasound2 2>/dev/null || apt-get install -y libasound2t64 2>/dev/null || true) && wget -q https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb && apt-get install -y ./google-chrome-stable_current_amd64.deb 2>/dev/null; rm -f google-chrome-stable_current_amd64.deb && pip3 install DrissionPage python-socketio websocket-client --break-system-packages 2>/dev/null || pip3 install DrissionPage python-socketio websocket-client && echo SETUP_COMPLETE';
