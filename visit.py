@@ -15,6 +15,20 @@ try:
 except ImportError:
     HAS_UC = False
 
+# Auto-detect Chrome version to avoid ChromeDriver mismatch
+CHROME_VERSION_MAIN = None
+try:
+    _cv = subprocess.check_output(['google-chrome', '--version'], stderr=subprocess.DEVNULL).decode().strip()
+    CHROME_VERSION_MAIN = int(_cv.split()[-1].split('.')[0])
+    print(f"[CHROME] Detected version: {CHROME_VERSION_MAIN}", flush=True)
+except:
+    try:
+        _cv = subprocess.check_output(['chromium-browser', '--version'], stderr=subprocess.DEVNULL).decode().strip()
+        CHROME_VERSION_MAIN = int(_cv.split()[-1].split('.')[0])
+        print(f"[CHROME] Detected Chromium version: {CHROME_VERSION_MAIN}", flush=True)
+    except:
+        print("[CHROME] Could not detect version, using auto", flush=True)
+
 try:
     from selenium import webdriver
     from selenium.webdriver.chrome.options import Options
@@ -154,7 +168,10 @@ def get_cf_cookies_browser(target_url):
             options.add_argument(f"--user-agent={ua}")
             if USE_PROXIES:
                 options.add_argument(f"--proxy-server=http://{PROXY_RELAY_HOST}:{PROXY_RELAY_PORT}")
-            driver = uc.Chrome(options=options, headless=True, driver_executable_path='/usr/local/bin/chromedriver')
+            uc_kwargs = {'options': options, 'headless': True}
+            if CHROME_VERSION_MAIN:
+                uc_kwargs['version_main'] = CHROME_VERSION_MAIN
+            driver = uc.Chrome(**uc_kwargs)
         elif HAS_SELENIUM:
             opts = Options()
             opts.add_argument("--headless=new")
@@ -329,7 +346,10 @@ def browser_worker(bid, target_url, max_visits, start_time):
                 options.add_argument(f"--user-agent={ua}")
                 if USE_PROXIES:
                     options.add_argument(f"--proxy-server=http://{PROXY_RELAY_HOST}:{PROXY_RELAY_PORT}")
-                driver = uc.Chrome(options=options, headless=True, driver_executable_path='/usr/local/bin/chromedriver')
+                uc_kwargs = {'options': options, 'headless': True}
+                if CHROME_VERSION_MAIN:
+                    uc_kwargs['version_main'] = CHROME_VERSION_MAIN
+                driver = uc.Chrome(**uc_kwargs)
             elif HAS_SELENIUM:
                 opts = Options()
                 opts.add_argument("--headless=new")
