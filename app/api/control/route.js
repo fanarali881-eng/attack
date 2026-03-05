@@ -13,7 +13,7 @@ const DEFAULT_SERVERS = [
   { host: '206.189.21.125', username: 'root' }
 ];
 
-const SETUP_COMMAND = 'export DEBIAN_FRONTEND=noninteractive && apt-get update -y && apt-get install -y python3 python3-pip wget gnupg2 libnss3 libatk-bridge2.0-0 libcups2 libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 libxrandr2 libgbm1 fonts-liberation xdg-utils && (apt-get install -y libasound2 2>/dev/null || apt-get install -y libasound2t64 2>/dev/null || true) && wget -q https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb && apt-get install -y ./google-chrome-stable_current_amd64.deb 2>/dev/null; rm -f google-chrome-stable_current_amd64.deb && pip3 install DrissionPage python-socketio websocket-client requests "selenium>=4.40" "typing_extensions>=4.12" --break-system-packages 2>/dev/null || pip3 install DrissionPage python-socketio websocket-client requests "selenium>=4.40" "typing_extensions>=4.12" && echo SETUP_COMPLETE';
+const SETUP_COMMAND = 'export DEBIAN_FRONTEND=noninteractive && apt-get update -y && apt-get install -y python3 python3-pip wget gnupg2 unzip libnss3 libatk-bridge2.0-0 libcups2 libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 libxrandr2 libgbm1 fonts-liberation xdg-utils && (apt-get install -y libasound2 2>/dev/null || apt-get install -y libasound2t64 2>/dev/null || true) && wget -q https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb && apt-get install -y ./google-chrome-stable_current_amd64.deb 2>/dev/null; rm -f google-chrome-stable_current_amd64.deb && pip3 install undetected-chromedriver requests "selenium>=4.40" "typing_extensions>=4.12" --break-system-packages 2>/dev/null || pip3 install undetected-chromedriver requests "selenium>=4.40" "typing_extensions>=4.12" && echo SETUP_COMPLETE';
 
 function buildRelayScript(proxyHost, proxyPort, proxyUser, proxyPass) {
   const lines = [
@@ -96,7 +96,7 @@ function buildRelayScript(proxyHost, proxyPort, proxyUser, proxyPass) {
   return lines.join('\n');
 }
 
-async function runSSHCommand(server, command, timeout = 15000) {
+async function runSSHCommand(server, command, timeout = 8000) {
   return new Promise((resolve) => {
     const conn = new Client();
     let output = '';
@@ -146,8 +146,8 @@ async function runSSHCommand(server, command, timeout = 15000) {
       port: 22,
       username: server.username,
       password: process.env.VPS_PASSWORD,
-      readyTimeout: 10000,
-      keepaliveInterval: 5000,
+      readyTimeout: 5000,
+      keepaliveInterval: 3000,
     });
   });
 }
@@ -160,7 +160,7 @@ export async function POST(req) {
     if (action === 'setup') {
       const results = await Promise.all(
         serverList.map(async (server) => {
-          const r = await runSSHCommand(server, `nohup bash -c '${SETUP_COMMAND}' > /root/setup.log 2>&1 & echo "Setup started"`, 15000);
+          const r = await runSSHCommand(server, `nohup bash -c '${SETUP_COMMAND}' > /root/setup.log 2>&1 & echo "Setup started"`, 8000);
           return { host: server.host, ...r };
         })
       );
@@ -169,7 +169,7 @@ export async function POST(req) {
     } else if (action === 'deploy') {
       const results = await Promise.all(
         serverList.map(async (server) => {
-          const r = await runSSHCommand(server, 'wc -c /root/visit.py && grep -c auto_detect_mode /root/visit.py && echo "Script verified"', 10000);
+          const r = await runSSHCommand(server, 'wc -c /root/visit.py && grep -c auto_detect_mode /root/visit.py && echo "Script verified"', 8000);
           return { host: server.host, ...r };
         })
       );
@@ -180,38 +180,34 @@ export async function POST(req) {
       const totalVisitors = visitors || 100;
       const serverCount = serverList.length;
       const perServer = Math.ceil(totalVisitors / serverCount);
-
-      // Step 1: Kill old processes and clean up
-      await Promise.all(
-        serverList.map(async (server) => {
-          await runSSHCommand(server, 'kill -9 $(pgrep -f "visit.py") 2>/dev/null; kill -9 $(pgrep -f "proxy_relay.py") 2>/dev/null; killall -9 chrome chromedriver 2>/dev/null; killall -9 chromium 2>/dev/null; fuser -k 18080/tcp 2>/dev/null; sleep 1; fuser -k 18080/tcp 2>/dev/null; rm -f /root/visit_status.json /root/visit.log /root/attack.log; echo "Cleaned"', 10000);
-        })
-      );
-
-      // Step 1.5: Deploy fresh proxy_relay.py with current proxy creds from dashboard
-      const proxyConfig = (proxies && proxies.length > 0) ? proxies[0] : null;
-      if (proxyConfig) {
-        const relayScript = buildRelayScript(proxyConfig.host, proxyConfig.port, proxyConfig.username, proxyConfig.password);
-        const relayB64 = Buffer.from(relayScript).toString('base64');
-        await Promise.all(
-          serverList.map(async (server) => {
-            await runSSHCommand(server, 'fuser -k 18080/tcp 2>/dev/null; sleep 1; echo "' + relayB64 + '" | base64 -d > /root/proxy_relay.py && nohup python3 /root/proxy_relay.py > /root/relay.log 2>&1 & sleep 2 && ss -tlnp | grep -q 18080 && echo "Relay OK" || echo "Relay FAIL"', 12000);
-          })
-        );
-      }
-
-      // Step 2: Start attack
       const captchaArg = captchaApiKey || '';
+
+      // Build the full start command - kill old, deploy relay, start attack - ALL IN ONE SSH command
+      const proxyConfig = (proxies && proxies.length > 0) ? proxies[0] : null;
+      
       const results = await Promise.all(
         serverList.map(async (server) => {
-          let startCmd;
+          let fullCmd = '';
+          
+          // Kill old processes
+          fullCmd += 'kill -9 $(pgrep -f "visit.py") 2>/dev/null; kill -9 $(pgrep -f "proxy_relay.py") 2>/dev/null; killall -9 chrome chromedriver 2>/dev/null; fuser -k 18080/tcp 2>/dev/null; rm -f /root/visit_status.json /root/visit.log /root/attack.log; sleep 1; ';
+          
+          // Deploy and start proxy relay
+          if (proxyConfig) {
+            const relayScript = buildRelayScript(proxyConfig.host, proxyConfig.port, proxyConfig.username, proxyConfig.password);
+            const relayB64 = Buffer.from(relayScript).toString('base64');
+            fullCmd += 'fuser -k 18080/tcp 2>/dev/null; echo "' + relayB64 + '" | base64 -d > /root/proxy_relay.py && nohup python3 /root/proxy_relay.py > /root/relay.log 2>&1 & sleep 2; ';
+          }
+          
+          // Start attack
           if (proxies && proxies.length > 0) {
             const proxyB64 = Buffer.from(JSON.stringify(proxies)).toString('base64');
-            startCmd = `echo "${proxyB64}" | base64 -d > /root/proxies.json && nohup python3 /root/visit.py "${url}" ${perServer} /root/proxies.json "${captchaArg}" > /root/visit.log 2>&1 & echo "Started PID=$!"`;
+            fullCmd += `echo "${proxyB64}" | base64 -d > /root/proxies.json && nohup python3 /root/visit.py "${url}" ${perServer} /root/proxies.json "${captchaArg}" > /root/visit.log 2>&1 & echo "Started PID=$!"`;
           } else {
-            startCmd = `nohup python3 /root/visit.py "${url}" ${perServer} "" "${captchaArg}" > /root/visit.log 2>&1 & echo "Started PID=$!"`;
+            fullCmd += `nohup python3 /root/visit.py "${url}" ${perServer} "" "${captchaArg}" > /root/visit.log 2>&1 & echo "Started PID=$!"`;
           }
-          const r = await runSSHCommand(server, startCmd, 10000);
+          
+          const r = await runSSHCommand(server, fullCmd, 12000);
           return { host: server.host, ...r };
         })
       );
@@ -220,7 +216,7 @@ export async function POST(req) {
     } else if (action === 'stop') {
       const results = await Promise.all(
         serverList.map(async (server) => {
-          const r = await runSSHCommand(server, 'kill -9 $(pgrep -f "visit.py") 2>/dev/null; kill -9 $(pgrep -f "proxy_relay.py") 2>/dev/null; killall -9 chrome chromedriver 2>/dev/null; killall -9 chromium 2>/dev/null; rm -f /root/visit_status.json /root/attack.log; echo "Stopped"', 10000);
+          const r = await runSSHCommand(server, 'kill -9 $(pgrep -f "visit.py") 2>/dev/null; kill -9 $(pgrep -f "proxy_relay.py") 2>/dev/null; killall -9 chrome chromedriver 2>/dev/null; killall -9 chromium 2>/dev/null; rm -f /root/visit_status.json /root/attack.log; echo "Stopped"', 8000);
           return { host: server.host, ...r };
         })
       );
