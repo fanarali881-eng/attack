@@ -59,8 +59,15 @@ REFERRERS = [
     '', '', '',
 ]
 
-def get_stealth_js():
-    ua = random.choice(USER_AGENTS)
+# Mobile viewport sizes for variety
+MOBILE_VIEWPORTS = [
+    (375, 812), (390, 844), (393, 873), (412, 915), (360, 800),
+    (414, 896), (428, 926), (430, 932), (375, 667), (320, 568),
+]
+
+def get_stealth_js(ua=None):
+    if ua is None:
+        ua = random.choice(USER_AGENTS)
     is_mobile = True  # Always mobile
     platform = 'iPhone' if 'iPhone' in ua else 'Linux armv8l'
     cores = random.choice([2,4])
@@ -74,6 +81,7 @@ window.chrome={{runtime:{{}},loadTimes:function(){{return{{}}}},csi:function(){{
 Object.defineProperty(navigator,'platform',{{get:()=>'{platform}'}});
 Object.defineProperty(navigator,'hardwareConcurrency',{{get:()=>{cores}}});
 Object.defineProperty(navigator,'deviceMemory',{{get:()=>{memory}}});
+Object.defineProperty(navigator,'userAgent',{{get:()=>'{ua}'}});
 {ref_js}
 """
 
@@ -352,13 +360,53 @@ def browser_worker(bid, target_url, max_visits, start_time):
             
             driver.set_page_load_timeout(20)
             
-            # Reuse browser for multiple visits
+            # Reuse browser for multiple visits - each visit looks like a DIFFERENT person
             for visit_num in range(VISITS_PER_BROWSER):
                 with lock:
                     if visit_count >= max_visits:
                         break
                 
                 try:
+                    # NEW IDENTITY: Change fingerprint before each visit
+                    new_ua = random.choice(USER_AGENTS)
+                    new_viewport = random.choice(MOBILE_VIEWPORTS)
+                    
+                    # Inject new stealth JS with new UA, referrer, and fingerprint
+                    try:
+                        driver.execute_cdp_cmd('Page.addScriptToEvaluateOnNewDocument', {
+                            'source': get_stealth_js(new_ua)
+                        })
+                    except: pass
+                    
+                    # Override User-Agent via CDP
+                    try:
+                        driver.execute_cdp_cmd('Network.setUserAgentOverride', {
+                            'userAgent': new_ua,
+                            'platform': 'iPhone' if 'iPhone' in new_ua else 'Linux armv8l'
+                        })
+                    except: pass
+                    
+                    # Change viewport size for variety
+                    try:
+                        driver.execute_cdp_cmd('Emulation.setDeviceMetricsOverride', {
+                            'width': new_viewport[0],
+                            'height': new_viewport[1],
+                            'deviceScaleFactor': random.choice([2, 3]),
+                            'mobile': True
+                        })
+                    except: pass
+                    
+                    # Clear cookies and storage = fresh visitor
+                    try:
+                        driver.delete_all_cookies()
+                    except: pass
+                    try:
+                        driver.execute_cdp_cmd('Storage.clearDataForOrigin', {
+                            'origin': target_url,
+                            'storageTypes': 'all'
+                        })
+                    except: pass
+                    
                     driver.get(target_url)
                     
                     # Wait for CF challenge (reduced from 30 to 15)
