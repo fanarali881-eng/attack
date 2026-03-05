@@ -18,8 +18,9 @@ wget -q -O /tmp/cd.zip "https://storage.googleapis.com/chrome-for-testing-public
 cd /tmp && unzip -o cd.zip 2>/dev/null && cp chromedriver-linux64/chromedriver /usr/local/bin/ && chmod +x /usr/local/bin/chromedriver
 rm -rf /tmp/cd.zip /tmp/chromedriver-linux64
 
-# Install selenium
-pip3 install selenium 2>/dev/null
+# Install dependencies
+apt-get install -y unzip >/dev/null 2>&1
+pip3 install selenium undetected-chromedriver --break-system-packages 2>/dev/null || pip3 install selenium undetected-chromedriver 2>/dev/null
 
 # Verify
 google-chrome --version
