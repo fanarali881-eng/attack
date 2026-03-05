@@ -57,8 +57,8 @@ export async function POST(req) {
     const { host, port, username, password } = await req.json();
 
     // Actually test the proxy by SSHing into a server and doing a real CONNECT test
-    const testUser = username ? `${username}-1` : 'rbttthqr-sa-1';
-    const cmd = `curl -s -x http://${testUser}:${password}@${host}:${port} -o /dev/null -w '%{http_code}' --connect-timeout 10 https://example.com/ 2>&1; echo "|||"; curl -s -v -x http://${testUser}:${password}@${host}:${port} https://example.com/ 2>&1 | grep -i 'Webshare-Reason\\|402\\|Payment' | head -3`;
+    const testUser = username || 'fanar';
+    const cmd = `curl -s -x http://${testUser}:${password}@${host}:${port} -o /dev/null -w '%{http_code}' --connect-timeout 10 https://example.com/ 2>&1; echo "|||"; curl -s -v -x http://${testUser}:${password}@${host}:${port} https://example.com/ 2>&1 | grep -i 'Webshare-Reason\\|402\\|Payment\\|PacketStream' | head -3`;
 
     const result = await runSSHCommand(TEST_SERVER, cmd, 15000);
 

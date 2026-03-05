@@ -20,10 +20,10 @@ export default function Home() {
   const [newHost, setNewHost] = useState('');
   const [newUsername, setNewUsername] = useState('root');
   const [useProxy, setUseProxy] = useState(true);
-  const [proxyHost, setProxyHost] = useState('p.webshare.io');
-  const [proxyPort, setProxyPort] = useState('80');
-  const [proxyUser, setProxyUser] = useState('rbtthqr-sa');
-  const [proxyPass, setProxyPass] = useState('3opjjm7k9oh2');
+  const [proxyHost, setProxyHost] = useState('proxy.packetstream.io');
+  const [proxyPort, setProxyPort] = useState('31112');
+  const [proxyUser, setProxyUser] = useState('fanar');
+  const [proxyPass, setProxyPass] = useState('j7HGTQiRnys66RlM_country-SaudiArabia');
   const [proxyCount, setProxyCount] = useState('10');
   const [captchaEnabled, setCaptchaEnabled] = useState(false);
   const [captchaApiKey, setCaptchaApiKey] = useState('');
@@ -46,7 +46,7 @@ export default function Home() {
       const res = await fetch('/api/proxy-check', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ host: proxyHost, port: proxyPort, username: `${proxyUser}-1`, password: proxyPass })
+        body: JSON.stringify({ host: proxyHost, port: proxyPort, username: proxyUser, password: proxyPass })
       });
       const data = await res.json();
       setProxyStatus(data.status);
@@ -321,7 +321,7 @@ export default function Home() {
     const list = [];
     const count = parseInt(proxyCount) || 10;
     for (let i = 1; i <= count; i++) {
-      list.push({ host: proxyHost, port: proxyPort, username: `${proxyUser}-${i}`, password: proxyPass });
+      list.push({ host: proxyHost, port: proxyPort, username: proxyUser, password: proxyPass });
     }
     return list;
   };
