@@ -252,8 +252,9 @@ def fast_http_worker(wid, target_url, max_visits, start_time):
             html = resp.read(2000).decode('utf-8', errors='ignore')
             status = resp.status
             
-            # Check if we got real page (not CF challenge)
-            if status == 200 and len(html) > 500 and 'just a moment' not in html.lower():
+            # Check if we got real page (not CF challenge or 404)
+            html_lower = html.lower()
+            if status == 200 and len(html) > 500 and 'just a moment' not in html_lower and 'page not found' not in html_lower and '"404"' not in html_lower:
                 with lock:
                     if visit_count < max_visits:
                         visit_count += 1
@@ -335,7 +336,8 @@ def browser_worker(bid, target_url, max_visits, start_time):
             title = driver.title or ''
             html_len = len(driver.page_source) if driver.page_source else 0
             
-            if html_len > 500 and title and 'just a moment' not in title.lower():
+            page_src = (driver.page_source or '').lower()[:5000]
+            if html_len > 500 and title and 'just a moment' not in title.lower() and '404' not in title and 'not found' not in title.lower() and 'page not found' not in page_src:
                 with lock:
                     if visit_count < max_visits:
                         visit_count += 1
@@ -406,7 +408,8 @@ def run_attack(target_url, max_visitors=100):
             resp = opener.open(req, timeout=15)
             html = resp.read(3000).decode('utf-8', errors='ignore')
             
-            if resp.status == 200 and len(html) > 500 and 'just a moment' not in html.lower():
+            html_lower = html.lower()
+            if resp.status == 200 and len(html) > 500 and 'just a moment' not in html_lower and 'page not found' not in html_lower and '"404"' not in html_lower:
                 http_works = True
                 print(f"[STEP 2] HTTP with cookies WORKS! Using TURBO mode", flush=True)
             else:
