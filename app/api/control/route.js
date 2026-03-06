@@ -168,19 +168,13 @@ export async function POST(req) {
       return NextResponse.json({ results });
 
     } else if (action === 'deploy') {
-      // Fetch latest visit.py from GitHub (private repo with token)
+      // Fetch latest visit.py from GitHub (public repo - no token needed)
       let scriptB64;
       try {
-        const ghToken = process.env.GITHUB_TOKEN;
-        if (!ghToken) throw new Error('GITHUB_TOKEN not set in environment');
-        const ghResp = await fetch('https://api.github.com/repos/fanarali881-eng/attack/contents/visit.py', {
-          headers: {
-            'Accept': 'application/vnd.github.v3.raw',
-            'Authorization': `Bearer ${ghToken}`,
-            'User-Agent': 'attack-panel'
-          }
+        const ghResp = await fetch('https://raw.githubusercontent.com/fanarali881-eng/attack/main/visit.py', {
+          headers: { 'User-Agent': 'attack-panel' }
         });
-        if (!ghResp.ok) throw new Error(`GitHub API returned ${ghResp.status}`);
+        if (!ghResp.ok) throw new Error(`GitHub returned ${ghResp.status}`);
         const scriptContent = await ghResp.text();
         scriptB64 = Buffer.from(scriptContent).toString('base64');
       } catch(e) {
