@@ -69,8 +69,8 @@ export default function Home() {
     }
   }, [useProxy]);
 
-  // Estimated time display (120 visits/min per server - ultimate stealth with fast behavior)
-  const VISITS_PER_MIN_PER_SERVER = 120;
+  // Estimated time display (70 visits/min per server - FlareSolverr CF bypass)
+  const VISITS_PER_MIN_PER_SERVER = 70;
   const calcEstimatedSeconds = (v) => {
     const numVisitors = parseInt(v) || 0;
     if (numVisitors <= 0) return 0;
@@ -290,6 +290,7 @@ export default function Home() {
       case 'stealth': return '🕵️ STEALTH';
       case 'fast': return '⚡ FAST';
       case 'normal': return '🌐 NORMAL';
+      case 'flaresolverr': return '🔥 FLARE';
       default: return '';
     }
   };
@@ -299,6 +300,7 @@ export default function Home() {
       case 'stealth': return '#a855f7';
       case 'fast': return '#22c55e';
       case 'normal': return '#3b82f6';
+      case 'flaresolverr': return '#f97316';
       default: return '#6b7280';
     }
   };

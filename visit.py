@@ -24,6 +24,7 @@ PROXY_COUNTRY = "SaudiArabia"
 DEFAULT_THREADS = 15
 DEFAULT_TOTAL = 500
 MAX_TIMEOUT = 60000
+STATUS_FILE = "/root/visit_status.json"
 
 # Pages to visit (looks like real browsing)
 PAGES = [
@@ -55,9 +56,40 @@ stats = {
     "failed": 0,
     "total_time": 0,
     "start_time": 0,
+    "target": 0,
     "ips_used": set(),
 }
 stats_lock = threading.Lock()
+
+def write_status():
+    """Write current status to JSON file for the dashboard to read"""
+    try:
+        elapsed = time.time() - stats["start_time"] if stats["start_time"] else 0
+        total_done = stats["success"] + stats["failed"]
+        target = stats["target"]
+        progress = (stats["success"] / target * 100) if target > 0 else 0
+        rate = stats["success"] / elapsed * 60 if elapsed > 0 else 0
+        
+        is_finished = total_done >= target
+        
+        status_data = {
+            "status": "finished" if is_finished else "running",
+            "visits": stats["success"],
+            "errors": stats["failed"],
+            "target": target,
+            "progress": round(progress, 1),
+            "elapsed": round(elapsed, 1),
+            "rate": round(rate, 1),
+            "remaining": max(0, target - stats["success"]),
+            "timestamp": int(time.time()),
+            "mode": "flaresolverr",
+            "unique_ips": len(stats["ips_used"]),
+        }
+        
+        with open(STATUS_FILE, "w") as f:
+            json.dump(status_data, f)
+    except:
+        pass
 
 def get_proxy_url():
     """Generate proxy URL with unique session for unique IP"""
@@ -115,13 +147,15 @@ def visit_worker(target_url, visit_id):
             if is_success:
                 stats["success"] += 1
                 stats["total_time"] += elapsed
-                # Try to extract IP from proxy session
                 stats["ips_used"].add(proxy.split("session-")[1].split("@")[0] if "session-" in proxy else "unknown")
             else:
                 stats["failed"] += 1
             
             total = stats["success"] + stats["failed"]
             rate = stats["success"] / (time.time() - stats["start_time"]) * 60 if stats["start_time"] else 0
+            
+            # Write status every visit
+            write_status()
             
             if total % 10 == 0 or total <= 5:
                 print(f"[{total}] ✅{stats['success']} ❌{stats['failed']} | "
@@ -135,6 +169,7 @@ def visit_worker(target_url, visit_id):
     except Exception as e:
         with stats_lock:
             stats["failed"] += 1
+            write_status()
         return False
 
 def run_visits(target_url, total_visits, num_threads):
@@ -154,7 +189,11 @@ def run_visits(target_url, total_visits, num_threads):
     stats["success"] = 0
     stats["failed"] = 0
     stats["total_time"] = 0
+    stats["target"] = total_visits
     stats["ips_used"] = set()
+    
+    # Write initial status
+    write_status()
     
     # Use semaphore to limit concurrent threads
     semaphore = threading.Semaphore(num_threads)
@@ -179,6 +218,9 @@ def run_visits(target_url, total_visits, num_threads):
     # Wait for all to complete
     for t in threads:
         t.join()
+    
+    # Final status
+    write_status()
     
     # Final stats
     total_time = time.time() - stats["start_time"]
