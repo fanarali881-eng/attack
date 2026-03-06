@@ -112,15 +112,14 @@ export async function POST(req) {
 
     } else if (action === 'start') {
       if (!url) return NextResponse.json({ error: "URL is required" }, { status: 400 });
-      const totalVisitors = visitors || 100;
+      const totalVisitors = visitors || 5000;
       const serverCount = serverList.length;
       const perServer = Math.ceil(totalVisitors / serverCount);
-      const threads = 15; // concurrent threads per server
 
       const results = await Promise.all(
         serverList.map(async (server) => {
-          // Kill old processes, ensure FlareSolverr running, start visit.py
-          const fullCmd = `killall -9 python3 2>/dev/null; sleep 1; docker start flaresolverr 2>/dev/null; sleep 2; nohup python3 /root/visit.py "${url}" ${perServer} ${threads} > /root/visit.log 2>&1 & echo "Started PID=$! - ${perServer} visits with ${threads} threads"`;
+          // Kill old, start all 7 FlareSolverr instances, run turbo v7
+          const fullCmd = `killall -9 python3 2>/dev/null; sleep 1; for i in 1 2 3 4 5 6 7; do p=$((8190+i)); n=flaresolverr; [ $i -gt 1 ] && n=flaresolverr$i; docker start $n 2>/dev/null; done; sleep 2; nohup python3 /root/visit.py "${url}" ${perServer} > /root/visit.log 2>&1 & echo "Started PID=$! - ${perServer} visits (TURBO v7)"`;
           
           const r = await runSSHCommand(server, fullCmd, 15000);
           return { host: server.host, ...r };
