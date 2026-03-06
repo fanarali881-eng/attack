@@ -313,31 +313,41 @@ def fast_http_worker(wid, target_url, max_visits, start_time):
 
 # ============================================
 # PHASE 2B: Browser worker (fallback if HTTP fails)
-# - Reuses browser for multiple visits before closing
-# - Cleans up temp data after each browser session
+# - Reuses browser for multiple visits (speed)
+# - Changes fingerprint via JS each visit (unique person)
+# - Cleans cookies between visits (fresh visitor)
 # ============================================
-VISITS_PER_BROWSER = 4  # Reuse each browser for 4 visits before recycling
+STEALTH_BROWSERS = 10  # Parallel browser workers (safe for 8GB RAM)
+VISITS_PER_BROWSER = 5  # Reuse each browser for 5 visits before recycling
 
 def browser_worker(bid, target_url, max_visits, start_time):
-    """Real browser visitor - reuses browser for multiple visits"""
+    """Real browser visitor - reuses browser but each visit = different person via JS"""
     global visit_count, error_count
+    consecutive_fails = 0
     
     while True:
         with lock:
             if visit_count >= max_visits:
                 break
         
+        # Back off if too many consecutive failures
+        if consecutive_fails >= 3:
+            time.sleep(random.uniform(2, 5))
+            consecutive_fails = 0
+        
         driver = None
         try:
             ua = random.choice(USER_AGENTS)
+            viewport = random.choice(MOBILE_VIEWPORTS)
+            
             if HAS_UC:
                 options = uc.ChromeOptions()
                 options.add_argument("--headless=new")
                 options.add_argument("--no-sandbox")
                 options.add_argument("--disable-dev-shm-usage")
                 options.add_argument("--disable-gpu")
-                options.add_argument("--window-size=412,915")
-                options.add_argument("--js-flags=--max-old-space-size=96")
+                options.add_argument(f"--window-size={viewport[0]},{viewport[1]}")
+                options.add_argument("--js-flags=--max-old-space-size=128")
                 options.add_argument("--disable-extensions")
                 options.add_argument("--disable-background-networking")
                 options.add_argument("--disable-default-apps")
@@ -357,8 +367,8 @@ def browser_worker(bid, target_url, max_visits, start_time):
                 opts.add_argument("--disable-dev-shm-usage")
                 opts.add_argument("--disable-gpu")
                 opts.add_argument("--disable-blink-features=AutomationControlled")
-                opts.add_argument("--window-size=412,915")
-                opts.add_argument("--js-flags=--max-old-space-size=96")
+                opts.add_argument(f"--window-size={viewport[0]},{viewport[1]}")
+                opts.add_argument("--js-flags=--max-old-space-size=128")
                 opts.add_argument("--disable-extensions")
                 opts.add_argument("--disable-background-networking")
                 opts.add_argument("--disable-default-apps")
@@ -369,71 +379,47 @@ def browser_worker(bid, target_url, max_visits, start_time):
                 if USE_PROXIES:
                     opts.add_argument(f"--proxy-server=http://{PROXY_RELAY_HOST}:{PROXY_RELAY_PORT}")
                 driver = webdriver.Chrome(options=opts)
-                driver.execute_cdp_cmd('Page.addScriptToEvaluateOnNewDocument', {
-                    'source': get_stealth_js()
-                })
             
             if not driver:
                 with lock: error_count += 1
-                time.sleep(1)
+                consecutive_fails += 1
+                time.sleep(2)
                 continue
             
             driver.set_page_load_timeout(20)
+            consecutive_fails = 0  # Browser opened successfully
             
-            # Reuse browser for multiple visits - each visit looks like a DIFFERENT person
+            # Reuse browser for multiple visits
             for visit_num in range(VISITS_PER_BROWSER):
                 with lock:
                     if visit_count >= max_visits:
                         break
                 
                 try:
-                    # NEW IDENTITY: Change fingerprint before each visit
+                    # Change fingerprint via JS before each visit (different person)
                     new_ua = random.choice(USER_AGENTS)
-                    new_viewport = random.choice(MOBILE_VIEWPORTS)
-                    
-                    # Inject new stealth JS with new UA, referrer, and fingerprint
+                    stealth_js = get_stealth_js(new_ua)
                     try:
                         driver.execute_cdp_cmd('Page.addScriptToEvaluateOnNewDocument', {
-                            'source': get_stealth_js(new_ua)
+                            'source': stealth_js
                         })
                     except: pass
                     
-                    # Override User-Agent via CDP
-                    try:
-                        driver.execute_cdp_cmd('Network.setUserAgentOverride', {
-                            'userAgent': new_ua,
-                            'platform': 'iPhone' if 'iPhone' in new_ua else 'Linux armv8l'
-                        })
-                    except: pass
-                    
-                    # Change viewport size for variety
-                    try:
-                        driver.execute_cdp_cmd('Emulation.setDeviceMetricsOverride', {
-                            'width': new_viewport[0],
-                            'height': new_viewport[1],
-                            'deviceScaleFactor': random.choice([2, 3]),
-                            'mobile': True
-                        })
-                    except: pass
-                    
-                    # Clear cookies and storage = fresh visitor
+                    # Clear cookies = fresh visitor (no tracking between visits)
                     try:
                         driver.delete_all_cookies()
-                    except: pass
-                    try:
-                        driver.execute_cdp_cmd('Storage.clearDataForOrigin', {
-                            'origin': target_url,
-                            'storageTypes': 'all'
-                        })
                     except: pass
                     
                     driver.get(target_url)
                     
-                    # Wait for CF challenge (reduced from 30 to 15)
+                    # Wait for CF challenge (max 15 seconds)
                     for w in range(15):
                         time.sleep(1)
-                        pg = driver.page_source or ''
-                        if 'just a moment' not in pg.lower() and 'checking your browser' not in pg.lower():
+                        try:
+                            pg = driver.page_source or ''
+                            if 'just a moment' not in pg.lower() and 'checking your browser' not in pg.lower():
+                                break
+                        except:
                             break
                     
                     # Human interaction - always simulate
@@ -446,28 +432,28 @@ def browser_worker(bid, target_url, max_visits, start_time):
                     html_len = len(driver.page_source) if driver.page_source else 0
                     
                     page_src = (driver.page_source or '').lower()[:5000]
-                    if html_len > 500 and title and 'just a moment' not in title.lower() and '404' not in title and 'not found' not in title.lower() and 'page not found' not in page_src:
+                    if html_len > 200 and title and 'just a moment' not in title.lower() and '404' not in title and 'not found' not in title.lower() and 'page not found' not in page_src:
                         with lock:
                             if visit_count < max_visits:
                                 visit_count += 1
                     else:
                         with lock: error_count += 1
                     
-                    # Small random delay between visits on same browser (human-like)
+                    # Small delay between visits (human-like)
                     if visit_num < VISITS_PER_BROWSER - 1:
-                        time.sleep(random.uniform(0.5, 1.5))
+                        time.sleep(random.uniform(0.3, 1.0))
                         
                 except Exception as inner_e:
                     with lock: error_count += 1
-                    break  # Browser might be broken, get a new one
+                    break  # Browser broken, get a new one
                 
-        except:
+        except Exception as e:
             with lock: error_count += 1
+            consecutive_fails += 1
         finally:
             try:
                 if driver: driver.quit()
             except: pass
-            # Clean up temp files after each browser session
             cleanup_browser_data()
 
 # ============================================
@@ -579,14 +565,14 @@ def run_attack(target_url, max_visitors=100):
     else:
         # STEALTH MODE: 15 browser workers (up from 8 for speed)
         DETECTED_MODE = 'stealth'
-        num_browsers = 15
-        print(f"[STEALTH MODE] Launching {num_browsers} browser workers ({VISITS_PER_BROWSER} visits each)", flush=True)
+        num_browsers = STEALTH_BROWSERS
+        print(f"[STEALTH MODE] Launching {num_browsers} browser workers ({VISITS_PER_BROWSER} visits each, unique fingerprint per visit)", flush=True)
         
         for i in range(num_browsers):
             t = threading.Thread(target=browser_worker, args=(i, target_url, max_visitors, start_time), daemon=True)
             t.start()
             threads.append(t)
-            time.sleep(0.2)  # Reduced from 0.5 to 0.2 for faster startup
+            time.sleep(1)  # Stagger browser starts to avoid resource contention
     
     # Monitor
     write_status(max_visitors, start_time, "running")
