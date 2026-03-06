@@ -376,21 +376,18 @@ def run_visits(target_url, total_visits, num_threads):
     # Auto-detect protection
     protection = detect_protection(target_url)
     
+    # Always use FlareSolverr (real browser) to ensure visits register in analytics
     if protection == "none":
-        mode = "fast"
-        worker_func = fast_visit_worker
-        # For fast mode, we can use more threads
-        effective_threads = min(num_threads * 3, 50)
-        print(f"\n⚡ FAST MODE - {effective_threads} threads", flush=True)
-    else:
-        mode = "flaresolverr"
-        worker_func = flare_visit_worker
-        effective_threads = num_threads
-        # Ensure FlareSolverr is running
-        if not ensure_flaresolverr():
-            print("ERROR: FlareSolverr not available!", flush=True)
-            return
-        print(f"\n🔥 FLARE MODE - {effective_threads} threads", flush=True)
+        print(f"\n✅ No CF protection - using 🔥 FLARE for real browser visits", flush=True)
+    
+    mode = "flaresolverr"
+    worker_func = flare_visit_worker
+    effective_threads = num_threads
+    # Ensure FlareSolverr is running
+    if not ensure_flaresolverr():
+        print("ERROR: FlareSolverr not available!", flush=True)
+        return
+    print(f"\n🔥 FLARE MODE - {effective_threads} threads", flush=True)
     
     stats["start_time"] = time.time()
     stats["success"] = 0
