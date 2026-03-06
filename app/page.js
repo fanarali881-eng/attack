@@ -40,8 +40,8 @@ export default function Home() {
   const countdownRef = useRef(null);
   const [proxyStatus, setProxyStatus] = useState(null); // null=unchecked, 'checking', 'active', 'expired', 'error'
   const [panelApiKey, setPanelApiKey] = useState(() => {
-    if (typeof window !== 'undefined') return localStorage.getItem('panelApiKey') || '';
-    return '';
+    if (typeof window !== 'undefined') return localStorage.getItem('panelApiKey') || 'Fadi@Attack2026!SecureKey#X9';
+    return 'Fadi@Attack2026!SecureKey#X9';
   });
   const [showApiKeyInput, setShowApiKeyInput] = useState(true);
 
