@@ -25,8 +25,8 @@ export default function Home() {
   const [useProxy, setUseProxy] = useState(true);
   const [proxyHost, setProxyHost] = useState('proxy.packetstream.io');
   const [proxyPort, setProxyPort] = useState('31112');
-  const [proxyUser, setProxyUser] = useState('fanar');
-  const [proxyPass, setProxyPass] = useState('j7HGTQiRnys66RIM_country-SaudiArabia');
+  const [proxyUser, setProxyUser] = useState('');
+  const [proxyPass, setProxyPass] = useState('');
   const [proxyCount, setProxyCount] = useState('10');
   const [captchaEnabled, setCaptchaEnabled] = useState(false);
   const [captchaApiKey, setCaptchaApiKey] = useState('');
@@ -39,6 +39,16 @@ export default function Home() {
   const intervalRef = useRef(null);
   const countdownRef = useRef(null);
   const [proxyStatus, setProxyStatus] = useState(null); // null=unchecked, 'checking', 'active', 'expired', 'error'
+  const [panelApiKey, setPanelApiKey] = useState(() => {
+    if (typeof window !== 'undefined') return localStorage.getItem('panelApiKey') || '';
+    return '';
+  });
+  const [showApiKeyInput, setShowApiKeyInput] = useState(true);
+
+  // Persist API key in localStorage
+  useEffect(() => {
+    if (panelApiKey) localStorage.setItem('panelApiKey', panelApiKey);
+  }, [panelApiKey]);
 
   const addLog = (msg) => setLogs(prev => [`[${new Date().toLocaleTimeString()}] ${msg}`, ...prev]);
 
@@ -48,7 +58,7 @@ export default function Home() {
     try {
       const res = await fetch('/api/proxy-check', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'x-api-key': panelApiKey },
         body: JSON.stringify({ host: proxyHost, port: proxyPort, username: proxyUser, password: proxyPass })
       });
       const data = await res.json();
@@ -67,7 +77,8 @@ export default function Home() {
     if (useProxy && proxyHost && proxyPass) {
       checkProxy();
     }
-  }, [useProxy]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [useProxy, proxyHost, proxyPass]);
 
   // Estimated time display (70 visits/min per server - FlareSolverr CF bypass)
   const VISITS_PER_MIN_PER_SERVER = 70;
@@ -125,14 +136,14 @@ export default function Home() {
       }, 1000);
       return () => clearInterval(countdownRef.current);
     }
-  }, [remainingSeconds !== null && remainingSeconds > 0, monitoring]);
+  }, [remainingSeconds, monitoring]);
 
   // Fetch status from all servers
   const fetchStatus = async () => {
     try {
       const res = await fetch('/api/status', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'x-api-key': panelApiKey },
         body: JSON.stringify({ servers })
       });
       const data = await res.json();
@@ -204,7 +215,9 @@ export default function Home() {
   };
 
   const handleAction = async (action) => {
+    if (!panelApiKey) return addLog('❌ خطأ: الرجاء إدخال مفتاح API أولاً');
     if (action === 'start' && !url) return addLog('❌ خطأ: الرجاء إدخال الرابط أولاً');
+    if (action === 'start' && !/^https?:\/\//i.test(url)) return addLog('❌ خطأ: الرابط لازم يبدأ بـ http:// أو https://');
     if (action === 'start' && !visitors) return addLog('❌ خطأ: الرجاء إدخال عدد الزوار');
 
     if (servers.length === 0) return addLog('❌ خطأ: لا يوجد سيرفرات، أضف سيرفر أولاً');
@@ -235,7 +248,7 @@ export default function Home() {
     try {
       const res = await fetch('/api/control', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'x-api-key': panelApiKey },
         body: JSON.stringify({ action, url, visitors: parseInt(visitors), servers, proxies: useProxy ? buildProxyList() : [], captchaApiKey: captchaEnabled ? captchaApiKey : '' })
       });
       const data = await res.json();
@@ -396,6 +409,19 @@ export default function Home() {
         <h1 style={styles.title}>
           ⚔️ لوحة تحكم الهجوم (Attack Panel)
         </h1>
+
+        {/* API Key Authentication */}
+        <div style={{ marginBottom: '16px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '8px' }}>
+            <label style={{ fontSize: '14px', color: '#ef4444' }}>🔑 مفتاح الدخول (API Key)</label>
+          </div>
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <input type="password" value={panelApiKey} onChange={(e) => setPanelApiKey(e.target.value)} placeholder="ادخل مفتاح API هنا..." style={{...styles.urlInput, borderColor: panelApiKey ? '#22c55e' : '#ef4444'}} />
+          </div>
+          <div style={{ marginTop: '4px', fontSize: '11px', color: panelApiKey ? '#22c55e' : '#ef4444' }}>
+            {panelApiKey ? '🔒 المفتاح مُدخل' : '⚠️ يجب إدخال مفتاح API للتحكم - حطه في إعدادات Vercel كـ PANEL_API_KEY'}
+          </div>
+        </div>
 
         {/* Server Management */}
         <div style={{ marginBottom: '24px' }}>

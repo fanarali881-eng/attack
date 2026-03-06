@@ -3,6 +3,23 @@ import { Client } from 'ssh2';
 
 const TEST_SERVER = { host: '46.101.52.177', username: 'root' };
 
+// Validate API key
+function validateApiKey(req) {
+  const authHeader = req.headers.get('x-api-key') || '';
+  const validKey = process.env.PANEL_API_KEY;
+  if (!validKey || authHeader !== validKey) {
+    return false;
+  }
+  return true;
+}
+
+// Sanitize proxy input to prevent command injection
+function sanitizeInput(val) {
+  if (!val || typeof val !== 'string') return null;
+  if (/[;&|`$(){}!#\n\r\\\'"<>]/.test(val)) return null;
+  return val.trim();
+}
+
 async function runSSHCommand(server, command, timeout = 10000) {
   return new Promise((resolve) => {
     const conn = new Client();
@@ -53,11 +70,26 @@ async function runSSHCommand(server, command, timeout = 10000) {
 }
 
 export async function POST(req) {
+  // Authentication check
+  if (!validateApiKey(req)) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
   try {
     const { host, port, username, password } = await req.json();
 
+    // Sanitize all inputs to prevent command injection
+    const safeHost = sanitizeInput(host);
+    const safePort = sanitizeInput(String(port));
+    const safeUsername = sanitizeInput(username);
+    const safePassword = sanitizeInput(password);
+
+    if (!safeHost || !safePort || !safeUsername || !safePassword) {
+      return NextResponse.json({ status: 'error', message: 'بيانات غير صالحة - تأكد من عدم وجود أحرف خاصة' });
+    }
+
     // Test proxy: first get IP, then check country
-    const proxyUrl = `http://${username}:${password}@${host}:${port}`;
+    const proxyUrl = `http://${safeUsername}:${safePassword}@${safeHost}:${safePort}`;
     const cmd = `IP=$(curl -s -x "${proxyUrl}" --connect-timeout 15 https://ipv4.icanhazip.com 2>/dev/null); echo "IP:$IP"; if [ -n "$IP" ]; then curl -s "http://ip-api.com/json/$IP" --connect-timeout 10 2>/dev/null; fi`;
 
     const result = await runSSHCommand(TEST_SERVER, cmd, 25000);

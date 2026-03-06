@@ -63,7 +63,22 @@ async function getServerStatus(server) {
   });
 }
 
+// Validate API key
+function validateApiKey(req) {
+  const authHeader = req.headers.get('x-api-key') || '';
+  const validKey = process.env.PANEL_API_KEY;
+  if (!validKey || authHeader !== validKey) {
+    return false;
+  }
+  return true;
+}
+
 export async function POST(req) {
+  // Authentication check
+  if (!validateApiKey(req)) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
   try {
     const { servers } = await req.json();
     // Query all servers in parallel for speed

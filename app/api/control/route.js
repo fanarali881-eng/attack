@@ -1,7 +1,6 @@
 import { NextResponse } from 'next/server';
 import { Client } from 'ssh2';
 
-
 const DEFAULT_SERVERS = [
   { host: '138.68.141.40', username: 'root' },
   { host: '144.126.234.13', username: 'root' },
@@ -16,6 +15,35 @@ const DEFAULT_SERVERS = [
 
 // New setup: Docker + FlareSolverr (bypasses CF Turnstile)
 const SETUP_COMMAND = 'export DEBIAN_FRONTEND=noninteractive && (which docker > /dev/null 2>&1 || (curl -fsSL https://get.docker.com | sh)) && docker rm -f flaresolverr 2>/dev/null; docker pull ghcr.io/flaresolverr/flaresolverr:latest && docker run -d --name flaresolverr --restart=always -p 8191:8191 -e LOG_LEVEL=info ghcr.io/flaresolverr/flaresolverr:latest && pip3 install requests --break-system-packages -q 2>/dev/null; pip3 install requests -q 2>/dev/null; sleep 10 && curl -s http://localhost:8191/ | grep -q FlareSolverr && echo SETUP_COMPLETE || echo SETUP_FAILED';
+
+// Sanitize URL to prevent command injection
+function sanitizeUrl(url) {
+  if (!url || typeof url !== 'string') return null;
+  // Only allow http/https URLs
+  if (!/^https?:\/\//i.test(url)) return null;
+  // Remove dangerous shell characters
+  if (/[;&|`$(){}!#\n\r\\]/.test(url)) return null;
+  // Remove quotes
+  if (/['"]/.test(url)) return null;
+  return url.trim();
+}
+
+// Sanitize number input
+function sanitizeNumber(val, defaultVal, min, max) {
+  const num = parseInt(val);
+  if (isNaN(num) || num < min || num > max) return defaultVal;
+  return num;
+}
+
+// Validate API key
+function validateApiKey(req) {
+  const authHeader = req.headers.get('x-api-key') || '';
+  const validKey = process.env.PANEL_API_KEY;
+  if (!validKey || authHeader !== validKey) {
+    return false;
+  }
+  return true;
+}
 
 async function runSSHCommand(server, command, timeout = 8000) {
   return new Promise((resolve) => {
@@ -74,6 +102,11 @@ async function runSSHCommand(server, command, timeout = 8000) {
 }
 
 export async function POST(req) {
+  // Authentication check
+  if (!validateApiKey(req)) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
   try {
     const { action, url, visitors, duration, servers, proxies, captchaApiKey } = await req.json();
     const serverList = (servers && servers.length > 0) ? servers : DEFAULT_SERVERS;
@@ -111,15 +144,19 @@ export async function POST(req) {
       return NextResponse.json({ results });
 
     } else if (action === 'start') {
-      if (!url) return NextResponse.json({ error: "URL is required" }, { status: 400 });
-      const totalVisitors = visitors || 5000;
+      // Sanitize URL to prevent command injection
+      const safeUrl = sanitizeUrl(url);
+      if (!safeUrl) return NextResponse.json({ error: "Invalid URL - must be http/https and contain no special characters" }, { status: 400 });
+      
+      const totalVisitors = sanitizeNumber(visitors, 5000, 1, 1000000);
       const serverCount = serverList.length;
       const perServer = Math.ceil(totalVisitors / serverCount);
 
       const results = await Promise.all(
         serverList.map(async (server) => {
-          // Kill old, start all 7 FlareSolverr instances, run turbo v7
-          const fullCmd = `killall -9 python3 2>/dev/null; sleep 1; for i in 1 2 3 4 5 6 7; do p=$((8190+i)); n=flaresolverr; [ $i -gt 1 ] && n=flaresolverr$i; docker start $n 2>/dev/null; done; sleep 2; nohup python3 /root/visit.py "${url}" ${perServer} > /root/visit.log 2>&1 & echo "Started PID=$! - ${perServer} visits (TURBO v7)"`;
+          // Use single quotes around URL to prevent shell interpretation, and escape any single quotes in URL
+          const escapedUrl = safeUrl.replace(/'/g, "'\\''");
+          const fullCmd = `killall -9 python3 2>/dev/null; sleep 1; for i in 1 2 3 4 5 6 7; do p=$((8190+i)); n=flaresolverr; [ $i -gt 1 ] && n=flaresolverr$i; docker start $n 2>/dev/null; done; sleep 2; nohup python3 /root/visit.py '${escapedUrl}' ${perServer} > /root/visit.log 2>&1 & echo "Started PID=$! - ${perServer} visits (TURBO v7)"`;
           
           const r = await runSSHCommand(server, fullCmd, 15000);
           return { host: server.host, ...r };
