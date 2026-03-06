@@ -205,7 +205,7 @@ export async function POST(req) {
           let fullCmd = '';
           
           // Kill old processes
-          fullCmd += 'kill -9 $(pgrep -f "visit.py") 2>/dev/null; kill -9 $(pgrep -f "proxy_relay.py") 2>/dev/null; killall -9 chrome chromedriver 2>/dev/null; fuser -k 18080/tcp 2>/dev/null; rm -f /root/visit_status.json /root/visit.log /root/attack.log; sleep 1; ';
+          fullCmd += 'killall -9 python3 chrome chromedriver 2>/dev/null; fuser -k 18080/tcp 2>/dev/null; rm -f /root/visit_status.json /root/visit.log /root/attack.log; sleep 1; ';
           
           // Deploy and start proxy relay
           if (proxyConfig) {
