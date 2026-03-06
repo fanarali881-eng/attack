@@ -211,7 +211,7 @@ export async function POST(req) {
           if (proxyConfig) {
             const relayScript = buildRelayScript(proxyConfig.host, proxyConfig.port, proxyConfig.username, proxyConfig.password);
             const relayB64 = Buffer.from(relayScript).toString('base64');
-            fullCmd += 'fuser -k 18080/tcp 2>/dev/null; echo "' + relayB64 + '" | base64 -d > /root/proxy_relay.py && nohup python3 /root/proxy_relay.py > /root/relay.log 2>&1 & sleep 2; ';
+            fullCmd += 'fuser -k 18080/tcp 2>/dev/null; echo "' + relayB64 + '" | base64 -d > /root/proxy_relay.py && nohup python3 /root/proxy_relay.py > /root/relay.log 2>&1 & sleep 1; ';
           }
           
           // Start attack
@@ -222,7 +222,7 @@ export async function POST(req) {
             fullCmd += `nohup python3 /root/visit.py "${url}" ${perServer} "" "${captchaArg}" > /root/visit.log 2>&1 & echo "Started PID=$!"`;
           }
           
-          const r = await runSSHCommand(server, fullCmd, 12000);
+          const r = await runSSHCommand(server, fullCmd, 30000);
           return { host: server.host, ...r };
         })
       );
