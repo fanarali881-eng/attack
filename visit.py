@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
 """
-TURBO v7 - Maximum Speed + No Hanging
-=======================================
-- 7 FlareSolverr instances harvest cookies in parallel
-- Each cookie: 25 fast pageviews (3 parallel threads per cookie)
-- Watchdog kills any stuck thread after 120s
-- All timeouts short: 60s harvest, 12s pageview
-- Stop cookie on 3 consecutive fails
-- Target: ~80/min per server × 9 = ~700/min total
+TURBO v8 - Faster + Less Errors
+=================================
+Fixes from v7:
+  - maxTimeout 60s→90s (some proxies need more time to solve challenge)
+  - 3 harvest retries (different session each time) instead of 2
+  - PAGES_PER_COOKIE 25→40 (less harvesting = faster overall)
+  - PARALLEL_PAGES 3→5 (more concurrent pageviews per cookie)
+  - Smarter error handling: skip dead cookies faster
+  - Better status reporting (elapsed as minutes:seconds)
+  - Continuous cookie supply: don't wait, keep feeding instances
 """
 import requests as req_lib
 import threading
@@ -17,7 +19,7 @@ import string
 import sys
 import json
 import os
-from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # ============ CONFIG ============
 FLARE_PORTS = [8191, 8192, 8193, 8194, 8195, 8196, 8197]
@@ -28,17 +30,23 @@ PROXY_PORT = "31112"
 PROXY_COUNTRY = "SaudiArabia"
 
 DEFAULT_TOTAL = 556
-PAGES_PER_COOKIE = 25
-PARALLEL_PAGES = 3  # parallel pageviews per cookie
-HARVEST_TIMEOUT = 65  # seconds
-PAGE_TIMEOUT = 12  # seconds
+PAGES_PER_COOKIE = 40       # more pages = less harvesting overhead
+PARALLEL_PAGES = 5           # concurrent pageviews per cookie
+HARVEST_TIMEOUT = 95         # seconds (90s maxTimeout + 5s buffer)
+HARVEST_MAX_TIMEOUT = 90000  # ms for FlareSolverr
+HARVEST_RETRIES = 3          # retry harvest with new session
+PAGE_TIMEOUT = 12            # seconds per pageview
 STATUS_FILE = "/root/visit_status.json"
 
 PAGES = ["/", "/about", "/contact", "/menu", "/gallery",
          "/", "/?ref=g", "/?ref=ig", "/?ref=tw", "/?ref=fb",
          "/about", "/contact", "/", "/menu", "/gallery",
          "/?ref=tt", "/?ref=sc", "/", "/about", "/",
-         "/gallery", "/menu", "/contact", "/?ref=d", "/"]
+         "/gallery", "/menu", "/contact", "/?ref=d", "/",
+         "/?utm_source=google", "/?utm_source=social", "/?utm_medium=cpc",
+         "/about", "/", "/contact", "/gallery", "/menu",
+         "/?ref=email", "/", "/about", "/", "/gallery",
+         "/menu", "/contact", "/"]
 
 REFERRERS = [
     "https://www.google.com/", "https://www.google.com.sa/",
@@ -59,6 +67,8 @@ def write_status():
         e = time.time() - stats["start_time"] if stats["start_time"] else 0
         r = stats["success"] / e * 60 if e > 0 else 0
         p = min((stats["success"] / stats["target"] * 100) if stats["target"] > 0 else 0, 100)
+        mins = int(e // 60)
+        secs = int(e % 60)
         with open(STATUS_FILE, "w") as f:
             json.dump({
                 "status": "finished" if stats["success"] >= stats["target"] else "running",
@@ -76,7 +86,7 @@ def write_status():
 def log_progress():
     with lock:
         total = stats["success"] + stats["failed"]
-        if total % 50 == 0 or total <= 10 or stats["success"] >= stats["target"]:
+        if total % 25 == 0 or total <= 10 or stats["success"] >= stats["target"]:
             e = time.time() - stats["start_time"]
             r = stats["success"] / e * 60 if e > 0 else 0
             write_status()
@@ -138,17 +148,18 @@ def ensure_flare():
     return ok > 0
 
 def harvest(url, port):
-    """Harvest one CF cookie. Returns dict or None."""
-    sid = "".join(random.choices(string.ascii_lowercase + string.digits, k=10))
-    data = {
-        "cmd": "request.get", "url": url, "maxTimeout": 60000,
-        "proxy": {
-            "url": f"http://{PROXY_HOST}:{PROXY_PORT}",
-            "username": PROXY_USER,
-            "password": f"{PROXY_PASS}_country-{PROXY_COUNTRY}_session-{sid}"
-        },
-    }
-    for attempt in range(2):
+    """Harvest one CF cookie with retries. Returns dict or None."""
+    for attempt in range(HARVEST_RETRIES):
+        if target_done.is_set(): return None
+        sid = "".join(random.choices(string.ascii_lowercase + string.digits, k=10))
+        data = {
+            "cmd": "request.get", "url": url, "maxTimeout": HARVEST_MAX_TIMEOUT,
+            "proxy": {
+                "url": f"http://{PROXY_HOST}:{PROXY_PORT}",
+                "username": PROXY_USER,
+                "password": f"{PROXY_PASS}_country-{PROXY_COUNTRY}_session-{sid}"
+            },
+        }
         try:
             r = req_lib.post(f"http://localhost:{port}/v1", json=data, timeout=HARVEST_TIMEOUT)
             d = r.json()
@@ -158,10 +169,8 @@ def harvest(url, port):
             ua = sol.get("userAgent", "")
             if d.get("status") == "ok" and len(html) > 1000 and "ERR_" not in html[:500]:
                 return {"cookies": {c["name"]: c["value"] for c in cl}, "ua": ua, "sid": sid}
-        except: pass
-        if attempt == 0:
-            sid = "".join(random.choices(string.ascii_lowercase + string.digits, k=10))
-            data["proxy"]["password"] = f"{PROXY_PASS}_country-{PROXY_COUNTRY}_session-{sid}"
+        except:
+            pass
     return None
 
 # ============ FAST PAGEVIEW ============
@@ -211,18 +220,22 @@ def cookie_cycle(url, port, cid):
     while i < PAGES_PER_COOKIE - 1 and not target_done.is_set():
         batch_size = min(PARALLEL_PAGES, PAGES_PER_COOKIE - 1 - i)
         
-        # Run batch in parallel
+        # Run batch in parallel using threads
         results = []
+        result_lock = threading.Lock()
         threads = []
+        
         for j in range(batch_size):
             def do_pv(idx=i+j):
-                return pageview(url, ck, idx)
-            t = threading.Thread(target=lambda: results.append(do_pv()))
+                ok = pageview(url, ck, idx)
+                with result_lock:
+                    results.append(ok)
+            t = threading.Thread(target=do_pv)
             t.start()
             threads.append(t)
         
         for t in threads:
-            t.join(timeout=PAGE_TIMEOUT + 5)  # watchdog: don't hang
+            t.join(timeout=PAGE_TIMEOUT + 3)
         
         # Process results
         for ok in results:
@@ -235,10 +248,10 @@ def cookie_cycle(url, port, cid):
                 consec_fail += 1
         
         if consec_fail >= 3:
-            break  # cookie dead
+            break  # cookie dead, move to next
         
         i += batch_size
-        time.sleep(random.uniform(0.03, 0.1))  # tiny delay between batches
+        # No delay between batches - max speed
 
 # ============ FAST DIRECT (no CF) ============
 def fast_direct(url, vid):
@@ -256,9 +269,10 @@ def fast_direct(url, vid):
 # ============ MAIN ============
 def run(url, total):
     print(f"\n{'='*60}", flush=True)
-    print(f"🚀 TURBO v7 - Max Speed", flush=True)
+    print(f"🚀 TURBO v8", flush=True)
     print(f"Target: {url} | Visits: {total}", flush=True)
     print(f"Pages/cookie: {PAGES_PER_COOKIE} | Parallel: {PARALLEL_PAGES}", flush=True)
+    print(f"Harvest retries: {HARVEST_RETRIES} | Timeout: {HARVEST_MAX_TIMEOUT//1000}s", flush=True)
     print(f"{'='*60}\n", flush=True)
     
     is_cf = detect(url)
@@ -269,10 +283,11 @@ def run(url, total):
     stats["ips"] = set(); stats["cookies_ok"] = 0; stats["cookies_fail"] = 0
     
     if is_cf:
-        stats["mode"] = "turbo_v7"
+        stats["mode"] = "turbo_v8"
         if not ensure_flare(): print("❌ No FlareSolverr!", flush=True); return
         
-        n_cookies = (total // PAGES_PER_COOKIE) + 10  # buffer
+        # More buffer for failures
+        n_cookies = (total // PAGES_PER_COOKIE) + 15
         n_inst = len(FLARE_PORTS)
         
         print(f"\n📋 ~{n_cookies} cookies × {PAGES_PER_COOKIE} pages | {n_inst} instances", flush=True)
@@ -286,10 +301,10 @@ def run(url, total):
                 port = FLARE_PORTS[i % n_inst]
                 f = ex.submit(cookie_cycle, url, port, i)
                 futs.append(f)
-                time.sleep(0.2)
+                time.sleep(0.15)  # faster stagger
             
             for f in as_completed(futs):
-                try: f.result(timeout=180)  # watchdog: 3 min max per cookie cycle
+                try: f.result(timeout=300)  # 5 min max per cycle (3 retries × 95s)
                 except: pass
     else:
         stats["mode"] = "fast"
@@ -302,7 +317,8 @@ def run(url, total):
     t = time.time() - stats["start_time"]
     print(f"\n{'='*60}", flush=True)
     print(f"🏁 DONE! ✅{stats['success']}/{total} ❌{stats['failed']}", flush=True)
-    print(f"⏱️ {t:.0f}s ({t/60:.1f}min) | 🚀{stats['success']/t*60:.0f}/min" if t > 0 else "", flush=True)
+    if t > 0:
+        print(f"⏱️ {t:.0f}s ({int(t//60)}m{int(t%60)}s) | 🚀{stats['success']/t*60:.0f}/min", flush=True)
     print(f"🌍 {len(stats['ips'])} IPs | 🍪 {stats['cookies_ok']}/{stats['cookies_ok']+stats['cookies_fail']}", flush=True)
     print(f"{'='*60}", flush=True)
 
