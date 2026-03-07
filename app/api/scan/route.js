@@ -43,7 +43,8 @@ async function testSocketIO(url) {
     });
     clearTimeout(timer);
     const text = await res.text();
-    if (res.status === 200 && text.includes('sid')) {
+    // Must be real Socket.IO handshake (JSON with "sid"), not HTML that happens to contain 'sid'
+    if (res.status === 200 && text.includes('"sid"') && !text.toLowerCase().startsWith('<!doctype') && !text.toLowerCase().startsWith('<html')) {
       return true;
     }
     return false;

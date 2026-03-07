@@ -560,7 +560,7 @@ def detect_site(url, manual_socket=None):
         try:
             sio_url = f"{manual_socket}/socket.io/?EIO=4&transport=polling"
             r = requests.get(sio_url, timeout=10)
-            if r.status_code == 200 and "sid" in r.text:
+            if r.status_code == 200 and '"sid"' in r.text and '<html' not in r.text.lower()[:200]:
                 print(f"  ✅ Socket.IO verified", flush=True)
         except:
             pass
@@ -631,7 +631,8 @@ def detect_site(url, manual_socket=None):
         try:
             sio_url = f"{base}/socket.io/?EIO=4&transport=polling"
             r2 = requests.get(sio_url, timeout=10)
-            if r2.status_code == 200 and "sid" in r2.text:
+            # MUST verify it's a real Socket.IO handshake, not just HTML containing 'sid'
+            if r2.status_code == 200 and '"sid"' in r2.text and '<html' not in r2.text.lower()[:200]:
                 result["has_socketio"] = True
                 result["socket_url"] = base
                 print(f"  🔌 Socket.IO found at {base}", flush=True)
@@ -688,7 +689,7 @@ def detect_site(url, manual_socket=None):
             try:
                 sio_test = f"{candidate.rstrip('/')}/socket.io/?EIO=4&transport=polling"
                 r_test = requests.get(sio_test, timeout=8)
-                if r_test.status_code == 200 and "sid" in r_test.text:
+                if r_test.status_code == 200 and '"sid"' in r_test.text and '<html' not in r_test.text.lower()[:200]:
                     result["has_socketio"] = True
                     result["socket_url"] = candidate.rstrip('/')
                     print(f"  🔌 Socket.IO backend found: {candidate}", flush=True)
@@ -831,7 +832,7 @@ def detect_site(url, manual_socket=None):
         try:
             sio_url = f"{result['socket_url']}/socket.io/?EIO=4&transport=polling"
             r3 = requests.get(sio_url, timeout=10)
-            if r3.status_code == 200 and "sid" in r3.text:
+            if r3.status_code == 200 and '"sid"' in r3.text and '<html' not in r3.text.lower()[:200]:
                 result["has_socketio"] = True
         except:
             pass
