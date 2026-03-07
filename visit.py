@@ -1448,18 +1448,22 @@ def visitor_socketio(site_info, vid):
                 stats["peak_active"] = stats["active_visitors"]
         log_progress()
         
-        # For socketio+proxy, override stay time to 120s for more active visitors
-        effective_stay = max(STAY_TIME, 120) if PROXY_USER else STAY_TIME
+        # Stay for the FULL attack duration so visitors accumulate over time
+        # Use duration_min from stats (set by run()) to keep visitor alive the entire attack
+        full_duration = stats.get("duration_min", 5) * 60  # convert minutes to seconds
+        effective_stay = max(full_duration, STAY_TIME) if PROXY_USER else STAY_TIME
         stay = effective_stay + random.randint(-10, 10)
         end_time = time.time() + max(stay, 15)
         
+        # Realistic browsing: change pages every 15-45 seconds like a real user
+        pages = site_info["pages"] if site_info["pages"] else ["/"]
         while time.time() < end_time and not stop_event.is_set():
-            time.sleep(random.uniform(5, 10))
+            # Random delay between page views (realistic browsing behavior)
+            time.sleep(random.uniform(15, 45))
             if time.time() >= end_time or stop_event.is_set(): break
             try:
                 if sio.connected:
-                    new_page = random.choice(site_info["pages"]) if site_info["pages"] else "/"
-                    # pageEnter expects just the path string, not an object
+                    new_page = random.choice(pages)
                     sio.emit(site_info["page_change_event"], new_page)
             except: pass  # Don't break on emit errors, let reconnection handle it
         
@@ -1830,8 +1834,10 @@ def run(url, duration_min, manual_socket=None):
                 time.sleep(1)
     
     print("\n⏳ Waiting for last visitors...", flush=True)
+    # Wait for all visitors to finish (they stay for full duration)
+    join_timeout = duration_min * 60 + 30  # full duration + buffer
     for t in all_threads[-WAVE_SIZE:]:
-        t.join(timeout=STAY_TIME + 10)
+        t.join(timeout=join_timeout)
     
     write_status()
     t = time.time() - stats["start_time"]
