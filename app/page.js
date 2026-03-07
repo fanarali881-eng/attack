@@ -226,14 +226,35 @@ export default function Home() {
     
     let detectedScanResult = null;
     try {
-      const scanRes = await fetch('/api/control', {
+      // Primary: Smart scan from Vercel (faster, can read JS bundles directly)
+      addLog(`🔍 فحص ذكي من السيرفر...`);
+      const scanRes = await fetch('/api/scan', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-api-key': panelApiKey },
-        body: JSON.stringify({ action: 'scan', url, servers, proxies: buildProxyList() })
+        body: JSON.stringify({ url, proxies: buildProxyList() })
       });
       const scanData = await scanRes.json();
-      if (scanData.scanResult) {
+      if (scanData.scanResult && scanData.scanResult.has_socketio && scanData.scanResult.socket_url) {
         detectedScanResult = scanData.scanResult;
+        addLog(`✅ تم اكتشاف Socket.IO: ${detectedScanResult.socket_url}`);
+      } else {
+        // Fallback: VPS-based scan
+        addLog(`🔄 فحص بديل من VPS...`);
+        const scanRes2 = await fetch('/api/control', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-api-key': panelApiKey },
+          body: JSON.stringify({ action: 'scan', url, servers, proxies: buildProxyList() })
+        });
+        const scanData2 = await scanRes2.json();
+        if (scanData2.scanResult) {
+          detectedScanResult = scanData2.scanResult;
+        } else if (scanData.scanResult) {
+          // Use Vercel scan result even without socket (for mode/protection info)
+          detectedScanResult = scanData.scanResult;
+        }
+      }
+      
+      if (detectedScanResult) {
         setScanResult(detectedScanResult);
         const modeNames = { socketio: '🔌 Socket.IO', cloudflare: '☁️ Cloudflare', http: '🌐 HTTP مباشر' };
         const protNames = { cloudflare: 'Cloudflare', akamai: 'Akamai', datadome: 'DataDome', perimeterx: 'PerimeterX', none: 'لا يوجد' };
