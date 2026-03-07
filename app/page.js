@@ -35,12 +35,12 @@ export default function Home() {
   const [proxyHost, setProxyHost] = useState('proxy.packetstream.io');
   const [proxyPort, setProxyPort] = useState('31112');
   const [proxyUser, setProxyUser] = useState(() => {
-    if (typeof window !== 'undefined') return localStorage.getItem('proxyUser') || '';
-    return '';
+    if (typeof window !== 'undefined') return localStorage.getItem('proxyUser') || 'fanar';
+    return 'fanar';
   });
   const [proxyPass, setProxyPass] = useState(() => {
-    if (typeof window !== 'undefined') return localStorage.getItem('proxyPass') || '';
-    return '';
+    if (typeof window !== 'undefined') return localStorage.getItem('proxyPass') || 'j7HGTQiRnys66RlM';
+    return 'j7HGTQiRnys66RlM';
   });
   const [monitoring, setMonitoring] = useState(false);
   const [serverStatus, setServerStatus] = useState([]);
