@@ -1349,7 +1349,7 @@ def visitor_socketio(site_info, vid):
                 },
                 "currentPage": random.choice(site_info["pages"]) if site_info["pages"] else "/"
             }
-            for _attempt in range(10):
+            for _attempt in range(5):
                 try:
                     # Generate fresh proxy session each attempt
                     attempt_proxy = get_proxy_url()
@@ -1368,6 +1368,10 @@ def visitor_socketio(site_info, vid):
                             json=reg_body, headers=reg_headers, timeout=15, verify=False,
                             proxies=reg_proxies_dict
                         )
+                    if reg_r.status_code == 429:
+                        # Rate limited - wait before retrying
+                        time.sleep(random.uniform(3, 6))
+                        continue
                     if reg_r.status_code in [200, 201]:
                         reg_data = reg_r.json()
                         # Verify the IP is actually Saudi
@@ -1669,9 +1673,10 @@ def run_wave(wave_num, site_info):
     delay_between = 0.15
     
     if site_info['mode'] == 'socketio' and PROXY_USER:
-        # Socket.IO through proxy needs slower sending - proxy can handle ~15-20 concurrent
-        actual_wave_size = WAVE_SIZE
-        delay_between = 0.5  # 500ms between each connection
+        # Socket.IO through proxy - limit to avoid 429 rate limiting on NexaFlow API
+        # Each visitor makes 1-5 registration attempts, so keep wave size small
+        actual_wave_size = min(WAVE_SIZE, 20)  # Max 20 visitors per wave to avoid rate limiting
+        delay_between = 1.5  # 1.5s between each connection to spread requests
     
     print(f"\n🌊 Wave {wave_num+1}/{stats['total_waves']} - "
           f"Sending {actual_wave_size} visitors ({site_info['mode']}/{site_info['protection']})...", flush=True)
@@ -1745,9 +1750,9 @@ def run(url, duration_min, manual_socket=None):
     
     # For socketio with proxy, use more frequent smaller waves
     if site_info['mode'] == 'socketio' and PROXY_USER:
-        # More waves, shorter interval between them
-        total_waves = max(1, duration_min * 6)  # 6 waves per minute
-        WAVE_INTERVAL_ACTUAL = 10  # 10 seconds between waves
+        # Slower waves to avoid 429 rate limiting - visitors stay 35s so overlap builds up
+        total_waves = max(1, duration_min * 2)  # 2 waves per minute
+        WAVE_INTERVAL_ACTUAL = 30  # 30 seconds between waves (visitors overlap since they stay 35s)
     else:
         total_waves = max(1, duration_min * 2)
         WAVE_INTERVAL_ACTUAL = WAVE_INTERVAL
