@@ -186,10 +186,11 @@ export async function POST(req) {
       // If we got real HTML, look for Socket.IO references
       if (!isBlocked && htmlContent.length > 500) {
         if (htmlContent.toLowerCase().includes('socket.io') || htmlContent.includes('io(')) {
-          result.has_socketio = true;
+          // HTML mentions socket.io, but we need to VERIFY a real server exists
           const socketUrls = extractSocketUrls(htmlContent);
           for (const su of socketUrls) {
             if (await testSocketIO(su)) {
+              result.has_socketio = true;
               result.socket_url = su.replace(/\/$/, '');
               break;
             }
@@ -321,9 +322,9 @@ export async function POST(req) {
     }
 
     // Step 5: Determine mode
-    if (result.has_socketio) {
+    // ONLY set socketio mode if we found a REAL verified socket_url
+    if (result.has_socketio && result.socket_url) {
       result.mode = 'socketio';
-      if (!result.socket_url) result.socket_url = base;
     } else if (result.has_cloudflare) {
       result.mode = 'cloudflare';
     } else {
