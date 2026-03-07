@@ -183,33 +183,26 @@ export async function POST(req) {
         isBlocked = true;
       }
       
-      // Check for NexaFlow (data-flow-apis) - known Socket.IO analytics platform
-      if (htmlContent.includes('nf-api-key') || htmlContent.includes('data-flow-apis') || htmlContent.includes('nexaflow')) {
-        // Extract the socket URL from NexaFlow script
-        const nfMatch = htmlContent.match(/(?:src|href)=["']([^"']*data-flow-apis[^"']*)["']/i)
-          || htmlContent.match(/["'](https?:\/\/[^"']*data-flow-apis[^"']*)["']/i);
-        const nfSocketUrl = nfMatch ? new URL(nfMatch[1]).origin : 'https://data-flow-apis.cc';
-        result.has_socketio = true;
-        result.socket_url = nfSocketUrl;
-        result.mode = 'socketio';
-        console.log(`[SCAN] NexaFlow detected! Socket URL: ${nfSocketUrl}`);
-      }
-      
       // If we got real HTML, look for Socket.IO references
-      if (!result.has_socketio && !isBlocked && htmlContent.length > 500) {
+      if (!isBlocked && htmlContent.length > 500) {
+        // Track candidate socket URLs (found in code but couldn't verify due to CF/firewall)
+        let candidateSocketUrl = null;
+        
         if (htmlContent.toLowerCase().includes('socket.io') || htmlContent.includes('io(')) {
-          // HTML mentions socket.io, but we need to VERIFY a real server exists
           const socketUrls = extractSocketUrls(htmlContent);
           for (const su of socketUrls) {
             if (await testSocketIO(su)) {
               result.has_socketio = true;
               result.socket_url = su.replace(/\/$/, '');
               break;
+            } else {
+              // Couldn't verify but URL exists in code - save as candidate
+              if (!candidateSocketUrl) candidateSocketUrl = su.replace(/\/$/, '');
             }
           }
         }
         
-        // Even if no socket.io in HTML, check JS bundles
+        // Check JS bundles for socket URLs and analytics platforms
         if (!result.socket_url) {
           const jsUrls = extractJsUrls(htmlContent, base);
           for (const jsUrl of jsUrls.slice(0, 15)) {
@@ -217,18 +210,41 @@ export async function POST(req) {
               const jsRes = await fetchViaProxy(jsUrl, null, 10000);
               if (jsRes && jsRes.ok) {
                 const jsContent = await jsRes.text();
+                
+                // Check for known analytics platforms (NexaFlow, etc.) in JS
+                if (jsContent.includes('nf-api-key') || jsContent.includes('data-flow-apis') || jsContent.includes('nexaflow')) {
+                  const nfMatch = jsContent.match(/["'](https?:\/\/[^"']*data-flow-apis[^"']*)["']/i);
+                  const nfSocketUrl = nfMatch ? new URL(nfMatch[1]).origin : 'https://data-flow-apis.cc';
+                  result.has_socketio = true;
+                  result.socket_url = nfSocketUrl;
+                  console.log(`[SCAN] NexaFlow detected in JS bundle! Socket URL: ${nfSocketUrl}`);
+                  break;
+                }
+                
+                // Check for socket.io references in JS
                 const backendUrls = extractSocketUrls(jsContent);
                 for (const bu of backendUrls) {
                   if (await testSocketIO(bu)) {
                     result.has_socketio = true;
                     result.socket_url = bu.replace(/\/$/, '');
                     break;
+                  } else {
+                    // Save as candidate if verification fails (CF/firewall blocking)
+                    if (!candidateSocketUrl) candidateSocketUrl = bu.replace(/\/$/, '');
                   }
                 }
                 if (result.socket_url) break;
               }
             } catch { continue; }
           }
+        }
+        
+        // If no verified socket but we found candidate URLs in code, use them
+        // The visit.py script will verify through proxy on the actual server
+        if (!result.socket_url && candidateSocketUrl) {
+          result.has_socketio = true;
+          result.socket_url = candidateSocketUrl;
+          console.log(`[SCAN] Unverified socket URL found in code (CF may block verification): ${candidateSocketUrl}`);
         }
       }
     }
