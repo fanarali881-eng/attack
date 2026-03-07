@@ -298,7 +298,11 @@ def gen_fingerprint():
 def get_proxy_url():
     if PROXY_USER and PROXY_PASS:
         sess = "".join(random.choices(string.ascii_lowercase+string.digits, k=8))
-        return f"http://{PROXY_USER}:{PROXY_PASS}_country-SaudiArabia_session-{sess}@{PROXY_HOST}:{PROXY_PORT}"
+        # Don't add _country-SaudiArabia if already in password
+        pw = PROXY_PASS
+        if '_country-' not in pw:
+            pw = pw + '_country-SaudiArabia'
+        return f"http://{PROXY_USER}:{pw}_session-{sess}@{PROXY_HOST}:{PROXY_PORT}"
     return None
 
 def get_browser_headers(profile, referer=None):
