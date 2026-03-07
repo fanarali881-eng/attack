@@ -1322,10 +1322,54 @@ def visitor_socketio(site_info, vid):
     def disconnect(): pass
     
     try:
-        # Build auth dict if token is available
+        # Build auth dict - for Nexa Flow sites, register visitor first to get JWT
         auth_dict = None
         if site_info.get("socket_token"):
-            auth_dict = {"token": site_info["socket_token"]}
+            # Nexa Flow: register visitor via HTTP API first
+            try:
+                reg_headers = {
+                    "Content-Type": "application/json",
+                    "nf-api-key": site_info["socket_token"],
+                    "Origin": site_info.get("base_url", ""),
+                    "Referer": site_info.get("base_url", "") + "/"
+                }
+                os_choices = ["Windows", "macOS", "Linux", "Android", "iOS"]
+                browser_choices = ["Chrome", "Firefox", "Safari", "Edge"]
+                device_choices = ["desktop", "mobile", "tablet"]
+                reg_body = {
+                    "deviceInfo": {
+                        "os": random.choice(os_choices),
+                        "device": random.choice(device_choices),
+                        "browser": random.choice(browser_choices)
+                    },
+                    "currentPage": random.choice(site_info["pages"]) if site_info["pages"] else "/"
+                }
+                if HAS_CFFI:
+                    reg_proxy = get_proxy_url()
+                    reg_proxies = {"http": reg_proxy, "https": reg_proxy} if reg_proxy else None
+                    reg_r = cffi_requests.post(
+                        site_info["socket_url"] + "/visitors",
+                        json=reg_body, headers=reg_headers,
+                        impersonate=random.choice(["chrome120", "chrome119", "chrome116"]),
+                        proxies=reg_proxies, timeout=15, verify=False
+                    )
+                else:
+                    reg_r = requests.post(
+                        site_info["socket_url"] + "/visitors",
+                        json=reg_body, headers=reg_headers, timeout=15, verify=False,
+                        proxies=http_session.proxies if http_session else None
+                    )
+                if reg_r.status_code in [200, 201]:
+                    reg_data = reg_r.json()
+                    visitor_jwt = reg_data.get("token")
+                    if visitor_jwt:
+                        auth_dict = {"nf-api-key": site_info["socket_token"], "token": visitor_jwt}
+                    else:
+                        auth_dict = {"nf-api-key": site_info["socket_token"]}
+                else:
+                    auth_dict = {"nf-api-key": site_info["socket_token"]}
+            except:
+                auth_dict = {"nf-api-key": site_info["socket_token"]}
         
         # Try websocket first (bypasses Cloudflare WAF), fall back to polling
         try:
