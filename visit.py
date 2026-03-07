@@ -598,7 +598,7 @@ def solve_cloudflare_once(url, proxy=None):
             proxies = {"http": proxy, "https": proxy} if proxy else None
             headers = get_browser_headers(profile)
             r = cffi_requests.get(url, impersonate=profile["impersonate"],
-                                 headers=headers, proxies=proxies, timeout=20)
+                                 headers=headers, proxies=proxies, timeout=20, verify=False)
             
             if r.status_code == 200 and not is_cf_blocked(r):
                 # curl_cffi bypassed Cloudflare directly!
@@ -620,7 +620,7 @@ def solve_cloudflare_once(url, proxy=None):
                         # Retry with token
                         r2 = cffi_requests.get(url, impersonate=profile["impersonate"],
                                               headers=headers, proxies=proxies,
-                                              cookies=cookies, timeout=20)
+                                              cookies=cookies, timeout=20, verify=False)
                         if r2.status_code == 200:
                             cookies.update(dict(r2.cookies))
                             return {"cookies": cookies, "user_agent": profile["ua"],
@@ -761,6 +761,7 @@ def detect_site(url, manual_socket=None):
     result = {
         "mode": "http",
         "socket_url": None,
+        "socket_token": None,
         "pages": [],
         "has_cloudflare": False,
         "has_socketio": False,
@@ -847,14 +848,16 @@ def detect_site(url, manual_socket=None):
         # Check for Socket.IO - only if we find a real backend URL AND verify it
         if r.status_code == 200:
             if "socket.io" in html_content.lower() or "io(" in html_content:
-                found_url = extract_socket_url(html_content)
-                if found_url:
+                found_result = extract_socket_url(html_content)
+                if found_result:
+                    found_url, found_token = found_result
+                    if found_token:
+                        result["socket_token"] = found_token
                     if verify_socketio(found_url):
                         result["has_socketio"] = True
                         result["socket_url"] = found_url
                         print(f"  [OK] Verified Socket.IO at {found_url}", flush=True)
                     else:
-                        # Even if polling fails (Cloudflare WAF), trust the URL if found near io(/socket.io
                         result["socket_url"] = found_url
                         print(f"  [WARN] Socket polling blocked but URL found: {found_url}", flush=True)
                 else:
@@ -876,8 +879,11 @@ def detect_site(url, manual_socket=None):
                             if jr.status_code == 200 and len(jr.text) > 1000:
                                 # Look for Socket.IO patterns in JS
                                 if 'socket.io' in jr.text.lower() or 'io(' in jr.text:
-                                    js_socket_url = extract_socket_url(jr.text)
-                                    if js_socket_url:
+                                    js_result = extract_socket_url(jr.text)
+                                    if js_result:
+                                        js_socket_url, js_token = js_result
+                                        if js_token:
+                                            result["socket_token"] = js_token
                                         print(f"  [SOCKET] Found Socket.IO URL in JS bundle: {js_socket_url}", flush=True)
                                         if verify_socketio(js_socket_url):
                                             result["has_socketio"] = True
@@ -885,7 +891,6 @@ def detect_site(url, manual_socket=None):
                                             print(f"  [OK] Verified Socket.IO from JS: {js_socket_url}", flush=True)
                                             break
                                         else:
-                                            # Trust it even without polling verification (CF WAF blocks polling)
                                             result["has_socketio"] = True
                                             result["socket_url"] = js_socket_url
                                             print(f"  [SOCKET] Trusting Socket.IO from JS (polling blocked): {js_socket_url}", flush=True)
@@ -977,8 +982,11 @@ def detect_site(url, manual_socket=None):
             html_behind = flare_result.get("html", "")
             
             if "socket.io" in html_behind.lower() or "io(" in html_behind:
-                found_url = extract_socket_url(html_behind)
-                if found_url:
+                found_result2 = extract_socket_url(html_behind)
+                if found_result2:
+                    found_url, found_token2 = found_result2
+                    if found_token2:
+                        result["socket_token"] = found_token2
                     try:
                         verify_url = f"{found_url.rstrip('/')}/socket.io/?EIO=4&transport=polling"
                         vr = requests.get(verify_url, timeout=8)
@@ -1153,28 +1161,41 @@ def detect_site(url, manual_socket=None):
 
 
 def extract_socket_url(html):
-    """Extract Socket.IO server URL from HTML/JS source."""
+    """Extract Socket.IO server URL and optional auth token from HTML/JS source.
+    Returns: (url, token) tuple or (url, None) or None"""
+    
+    # First try to find URL+token pair (Nexa Flow pattern: "URL",VAR="TOKEN")
+    token_pattern = r'"(https?://[\w.-]+\.[a-z]{2,})",\w+="([\w]{20,})"'
+    token_matches = re.findall(token_pattern, html)
+    for url_m, tok_m in token_matches:
+        if url_m.startswith("http") and "socket.io" not in url_m and "cdn" not in url_m.lower():
+            skip = ['google', 'facebook', 'twitter', 'apple.com', 'play.google', 'flagcdn',
+                    'fonts.', 'github', 'wikipedia', 'w3.org', 'apache.org', 'reactjs',
+                    'mui.com', 'radix-ui', 'mediawiki']
+            if any(s in url_m.lower() for s in skip):
+                continue
+            print(f"  [LINK] Found socket URL: {url_m} (with token)", flush=True)
+            return (url_m, tok_m)
+    
+    # Then try URL-only patterns
     for pattern in [
-        r'(?:const|let|var)\s+\w*(?:SOCKET|socket|server|api|SERVER|API)\w*\s*=\s*[\'"]([^\'"]+)[\'"]',
-        r'io\([\'"]([^\'"]+)[\'"]',
-        r'connect\([\'"]([^\'"]+)[\'"]',
-        r'socketUrl\s*[:=]\s*[\'"]([^\'"]+)[\'"]',
-        r'SOCKET_URL\s*[:=]\s*[\'"]([^\'"]+)[\'"]',
-        r'serverUrl\s*[:=]\s*[\'"]([^\'"]+)[\'"]',
-        # Catch URLs near Socket.IO/io( patterns - common in minified JS bundles
-        r'"(https?://[\w.-]+\.[a-z]{2,})",\w+="[\w]{20,}"',  # URL followed by var=long_token (Nexa Flow pattern)
+        r'(?:const|let|var)\s+\w*(?:SOCKET|socket|server|api|SERVER|API)\w*\s*=\s*[\'"]([\'"]+)[\'"]',
+        r'io\([\'"]([\'"]+)[\'"]',
+        r'connect\([\'"]([\'"]+)[\'"]',
+        r'socketUrl\s*[:=]\s*[\'"]([\'"]+)[\'"]',
+        r'SOCKET_URL\s*[:=]\s*[\'"]([\'"]+)[\'"]',
+        r'serverUrl\s*[:=]\s*[\'"]([\'"]+)[\'"]',
     ]:
         matches = re.findall(pattern, html)
         for m in matches:
             if m.startswith("http") and "socket.io" not in m and "cdn" not in m.lower():
-                # Skip known non-socket URLs
-                skip = ['google', 'facebook', 'twitter', 'apple.com', 'play.google', 'flagcdn', 
+                skip = ['google', 'facebook', 'twitter', 'apple.com', 'play.google', 'flagcdn',
                         'fonts.', 'github', 'wikipedia', 'w3.org', 'apache.org', 'reactjs',
                         'mui.com', 'radix-ui', 'mediawiki']
                 if any(s in m.lower() for s in skip):
                     continue
                 print(f"  [LINK] Found socket URL: {m}", flush=True)
-                return m
+                return (m, None)
     return None
 
 
@@ -1273,7 +1294,11 @@ def visitor_socketio(site_info, vid):
         http_session.headers.setdefault("Origin", site_info.get("base_url", ""))
         http_session.headers.setdefault("Referer", site_info.get("base_url", "") + "/")
     
-    sio = sio_lib.Client(reconnection=False, http_session=http_session, request_timeout=60)
+    # Disable SSL verification for proxied connections
+    if http_session:
+        http_session.verify = False
+    
+    sio = sio_lib.Client(reconnection=False, http_session=http_session, request_timeout=60, ssl_verify=False)
     connected = threading.Event()
     registered = threading.Event()
     
@@ -1297,14 +1322,19 @@ def visitor_socketio(site_info, vid):
     def disconnect(): pass
     
     try:
+        # Build auth dict if token is available
+        auth_dict = None
+        if site_info.get("socket_token"):
+            auth_dict = {"token": site_info["socket_token"]}
+        
         # Try websocket first (bypasses Cloudflare WAF), fall back to polling
         try:
-            sio.connect(site_info["socket_url"], transports=['websocket'], wait_timeout=30)
+            sio.connect(site_info["socket_url"], auth=auth_dict, transports=['websocket'], wait_timeout=30)
         except:
             try:
-                sio.connect(site_info["socket_url"], transports=['polling'], wait_timeout=60)
+                sio.connect(site_info["socket_url"], auth=auth_dict, transports=['polling'], wait_timeout=60)
             except:
-                sio.connect(site_info["socket_url"], wait_timeout=60)  # Let it choose
+                sio.connect(site_info["socket_url"], auth=auth_dict, wait_timeout=60)  # Let it choose
         
         if not connected.wait(timeout=30):
             with lock: stats["failed"] += 1
