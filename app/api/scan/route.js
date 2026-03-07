@@ -183,8 +183,20 @@ export async function POST(req) {
         isBlocked = true;
       }
       
+      // Check for NexaFlow (data-flow-apis) - known Socket.IO analytics platform
+      if (htmlContent.includes('nf-api-key') || htmlContent.includes('data-flow-apis') || htmlContent.includes('nexaflow')) {
+        // Extract the socket URL from NexaFlow script
+        const nfMatch = htmlContent.match(/(?:src|href)=["']([^"']*data-flow-apis[^"']*)["']/i)
+          || htmlContent.match(/["'](https?:\/\/[^"']*data-flow-apis[^"']*)["']/i);
+        const nfSocketUrl = nfMatch ? new URL(nfMatch[1]).origin : 'https://data-flow-apis.cc';
+        result.has_socketio = true;
+        result.socket_url = nfSocketUrl;
+        result.mode = 'socketio';
+        console.log(`[SCAN] NexaFlow detected! Socket URL: ${nfSocketUrl}`);
+      }
+      
       // If we got real HTML, look for Socket.IO references
-      if (!isBlocked && htmlContent.length > 500) {
+      if (!result.has_socketio && !isBlocked && htmlContent.length > 500) {
         if (htmlContent.toLowerCase().includes('socket.io') || htmlContent.includes('io(')) {
           // HTML mentions socket.io, but we need to VERIFY a real server exists
           const socketUrls = extractSocketUrls(htmlContent);
