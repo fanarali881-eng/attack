@@ -3,12 +3,13 @@
 TURBO v9 - WAVE MODE
 =================================
 New in v9:
-  - Wave system: 60 visitors enter, stay 30 seconds, then next wave
+  - Wave system: 150 visitors enter, stay 30 seconds, then next wave
   - Input: duration in minutes (not visit count)
-  - 120 visits per minute (60 visitors × 2 waves per minute)
-  - Always 60 active visitors on site
+  - 300 visits per minute (150 visitors × 2 waves per minute)
+  - Always 150 active visitors on site
   - Visitors stay 30 seconds (appear as real active users)
   - Auto-calculates total visits from duration
+  - 20 FlareSolverr instances for maximum speed
 """
 import requests as req_lib
 import threading
@@ -21,7 +22,7 @@ import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # ============ CONFIG ============
-FLARE_PORTS = [8191, 8192, 8193, 8194, 8195, 8196, 8197]
+FLARE_PORTS = list(range(8191, 8211))  # 20 instances (8191-8210)
 PROXY_USER = os.environ.get("PROXY_USER", "fanar")
 PROXY_PASS = os.environ.get("PROXY_PASS", "j7HGTQiRnys66RIM")
 PROXY_HOST = os.environ.get("PROXY_HOST", "proxy.packetstream.io")

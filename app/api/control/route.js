@@ -13,8 +13,8 @@ const DEFAULT_SERVERS = [
   { host: '206.189.21.125', username: 'root' }
 ];
 
-// New setup: Docker + FlareSolverr (bypasses CF Turnstile)
-const SETUP_COMMAND = 'export DEBIAN_FRONTEND=noninteractive && (which docker > /dev/null 2>&1 || (curl -fsSL https://get.docker.com | sh)) && docker rm -f flaresolverr 2>/dev/null; docker pull ghcr.io/flaresolverr/flaresolverr:latest && docker run -d --name flaresolverr --restart=always -p 8191:8191 -e LOG_LEVEL=info ghcr.io/flaresolverr/flaresolverr:latest && pip3 install requests --break-system-packages -q 2>/dev/null; pip3 install requests -q 2>/dev/null; sleep 10 && curl -s http://localhost:8191/ | grep -q FlareSolverr && echo SETUP_COMPLETE || echo SETUP_FAILED';
+// New setup: Docker + 20 FlareSolverr instances (bypasses CF Turnstile)
+const SETUP_COMMAND = 'export DEBIAN_FRONTEND=noninteractive && (which docker > /dev/null 2>&1 || (curl -fsSL https://get.docker.com | sh)) && docker pull ghcr.io/flaresolverr/flaresolverr:latest && for i in $(seq 1 20); do n=flaresolverr$i; p=$((8190+i)); docker rm -f $n 2>/dev/null; docker run -d --name $n --restart=always -p $p:8191 -e LOG_LEVEL=info --memory=256m ghcr.io/flaresolverr/flaresolverr:latest; done && pip3 install requests --break-system-packages -q 2>/dev/null; pip3 install requests -q 2>/dev/null; sleep 15 && echo SETUP_COMPLETE_20_INSTANCES';
 
 // Sanitize URL to prevent command injection
 function sanitizeUrl(url) {
@@ -155,7 +155,7 @@ export async function POST(req) {
         serverList.map(async (server) => {
           // Use single quotes around URL to prevent shell interpretation, and escape any single quotes in URL
           const escapedUrl = safeUrl.replace(/'/g, "'\\''");
-          const fullCmd = `killall -9 python3 2>/dev/null; sleep 1; for i in 1 2 3 4 5 6 7; do p=$((8190+i)); n=flaresolverr; [ $i -gt 1 ] && n=flaresolverr$i; docker start $n 2>/dev/null; done; sleep 2; nohup python3 /root/visit.py '${escapedUrl}' ${safeDuration} > /root/visit.log 2>&1 & echo "Started PID=$! - ${safeDuration} min WAVE mode (TURBO v9)"`;
+          const fullCmd = `killall -9 python3 2>/dev/null; sleep 1; for i in $(seq 1 20); do docker start flaresolverr$i 2>/dev/null; done; sleep 2; nohup python3 /root/visit.py '${escapedUrl}' ${safeDuration} > /root/visit.log 2>&1 & echo "Started PID=$! - ${safeDuration} min WAVE mode (TURBO v9 - 20 instances)"`;
           
           const r = await runSSHCommand(server, fullCmd, 15000);
           return { host: server.host, ...r };
