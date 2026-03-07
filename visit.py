@@ -1345,11 +1345,12 @@ def visitor_socketio(site_info, vid):
                 },
                 "currentPage": random.choice(site_info["pages"]) if site_info["pages"] else "/"
             }
-            for _attempt in range(3):
+            for _attempt in range(10):
                 try:
-                    # Use SAME proxy_url as Socket.IO session for consistency
+                    # Generate fresh proxy session each attempt
+                    attempt_proxy = get_proxy_url()
                     if HAS_CFFI:
-                        reg_proxies = {"http": proxy_url, "https": proxy_url} if proxy_url else None
+                        reg_proxies = {"http": attempt_proxy, "https": attempt_proxy} if attempt_proxy else None
                         reg_r = cffi_requests.post(
                             site_info["socket_url"] + "/visitors",
                             json=reg_body, headers=reg_headers,
@@ -1357,23 +1358,22 @@ def visitor_socketio(site_info, vid):
                             proxies=reg_proxies, timeout=15, verify=False
                         )
                     else:
+                        reg_proxies_dict = {"http": attempt_proxy, "https": attempt_proxy} if attempt_proxy else None
                         reg_r = requests.post(
                             site_info["socket_url"] + "/visitors",
                             json=reg_body, headers=reg_headers, timeout=15, verify=False,
-                            proxies=http_session.proxies if http_session else None
+                            proxies=reg_proxies_dict
                         )
                     if reg_r.status_code in [200, 201]:
                         reg_data = reg_r.json()
                         visitor_jwt = reg_data.get("token")
+                        # Lock in the successful proxy for Socket.IO too
+                        proxy_url = attempt_proxy
+                        if proxy_url and http_session:
+                            http_session.proxies = {"http": proxy_url, "https": proxy_url}
                         break
-                    # If blocked by geo/Fortinet, try new proxy session
-                    proxy_url = get_proxy_url()
-                    if proxy_url and http_session:
-                        http_session.proxies = {"http": proxy_url, "https": proxy_url}
                 except:
-                    proxy_url = get_proxy_url()
-                    if proxy_url and http_session:
-                        http_session.proxies = {"http": proxy_url, "https": proxy_url}
+                    pass
             
             if visitor_jwt:
                 auth_dict = {"nf-api-key": site_info["socket_token"], "token": visitor_jwt}
