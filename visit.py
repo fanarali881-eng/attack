@@ -1238,17 +1238,26 @@ def visitor_dispatch(site_info, vid):
 
 
 def run_wave(wave_num, site_info):
+    # For socketio mode through proxy, use micro-batches to avoid overwhelming the proxy
+    actual_wave_size = WAVE_SIZE
+    delay_between = 0.15
+    
+    if site_info['mode'] == 'socketio' and PROXY_USER:
+        # Socket.IO through proxy needs slower sending - proxy can handle ~15-20 concurrent
+        actual_wave_size = WAVE_SIZE
+        delay_between = 0.5  # 500ms between each connection
+    
     print(f"\n🌊 Wave {wave_num+1}/{stats['total_waves']} - "
-          f"Sending {WAVE_SIZE} visitors ({site_info['mode']}/{site_info['protection']})...", flush=True)
+          f"Sending {actual_wave_size} visitors ({site_info['mode']}/{site_info['protection']})...", flush=True)
     
     threads = []
-    for i in range(WAVE_SIZE):
+    for i in range(actual_wave_size):
         if stop_event.is_set(): break
-        vid = wave_num * WAVE_SIZE + i
+        vid = wave_num * actual_wave_size + i
         t = threading.Thread(target=visitor_dispatch, args=(site_info, vid), daemon=True)
         t.start()
         threads.append(t)
-        time.sleep(0.15)
+        time.sleep(delay_between)
     
     with lock: stats["waves_done"] += 1
     write_status()
@@ -1288,7 +1297,14 @@ def run(url, duration_min, manual_socket=None):
         if not cf_cookie_cache["valid"]:
             init_cf_cookies(url)
     
-    total_waves = max(1, duration_min * 2)
+    # For socketio with proxy, use more frequent smaller waves
+    if site_info['mode'] == 'socketio' and PROXY_USER:
+        # More waves, shorter interval between them
+        total_waves = max(1, duration_min * 6)  # 6 waves per minute
+        WAVE_INTERVAL_ACTUAL = 10  # 10 seconds between waves
+    else:
+        total_waves = max(1, duration_min * 2)
+        WAVE_INTERVAL_ACTUAL = WAVE_INTERVAL
     total_visits = total_waves * WAVE_SIZE
     
     print(f"\n{'='*60}", flush=True)
@@ -1328,8 +1344,9 @@ def run(url, duration_min, manual_socket=None):
         all_threads.extend(wave_threads)
         
         if wave < total_waves - 1:
-            print(f"  ⏳ Next wave in {WAVE_INTERVAL}s... (👥 {stats['active_visitors']} active)", flush=True)
-            for _ in range(WAVE_INTERVAL):
+            wait_time = WAVE_INTERVAL_ACTUAL
+            print(f"  ⏳ Next wave in {wait_time}s... (👥 {stats['active_visitors']} active)", flush=True)
+            for _ in range(wait_time):
                 if stop_event.is_set(): break
                 time.sleep(1)
     
