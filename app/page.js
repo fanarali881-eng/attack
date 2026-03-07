@@ -3,8 +3,7 @@ import { useState, useEffect, useRef } from 'react';
 
 export default function Home() {
   const [url, setUrl] = useState('');
-  const [visitors, setVisitors] = useState('100');
-  // Duration is display-only (estimated time), not sent to servers
+  const [durationMin, setDurationMin] = useState('5');
   const [logs, setLogs] = useState([]);
   const [loading, setLoading] = useState(false);
   const [activeAction, setActiveAction] = useState('');
@@ -30,7 +29,6 @@ export default function Home() {
   const [proxyCount, setProxyCount] = useState('10');
   const [captchaEnabled, setCaptchaEnabled] = useState(false);
   const [captchaApiKey, setCaptchaApiKey] = useState('');
-  // captchaService auto-detected from API key
   const [monitoring, setMonitoring] = useState(false);
   const [serverStatus, setServerStatus] = useState([]);
   const [attackStartTime, setAttackStartTime] = useState(null);
@@ -38,7 +36,7 @@ export default function Home() {
   const [attackSummary, setAttackSummary] = useState(null);
   const intervalRef = useRef(null);
   const countdownRef = useRef(null);
-  const [proxyStatus, setProxyStatus] = useState(null); // null=unchecked, 'checking', 'active', 'expired', 'error'
+  const [proxyStatus, setProxyStatus] = useState(null);
   const [panelApiKey, setPanelApiKey] = useState(() => {
     if (typeof window !== 'undefined') return localStorage.getItem('panelApiKey') || 'Fadi@Attack2026!SecureKey#X9';
     return 'Fadi@Attack2026!SecureKey#X9';
@@ -80,14 +78,27 @@ export default function Home() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [useProxy, proxyHost, proxyPass]);
 
-  // Estimated time display (70 visits/min per server - FlareSolverr CF bypass)
-  const VISITS_PER_MIN_PER_SERVER = 70;
-  const calcEstimatedSeconds = (v) => {
-    const numVisitors = parseInt(v) || 0;
-    if (numVisitors <= 0) return 0;
-    const perServer = Math.ceil(numVisitors / servers.length);
-    return Math.ceil((perServer / VISITS_PER_MIN_PER_SERVER) * 60);
+  // Dynamic calculations based on duration
+  const WAVE_SIZE = 60;
+  const VISITS_PER_MINUTE = 120;
+  const calcTotalVisits = (min) => {
+    const m = parseInt(min) || 0;
+    return m * VISITS_PER_MINUTE * servers.length;
   };
+  const calcTotalWaves = (min) => {
+    const m = parseInt(min) || 0;
+    return m * 2; // 2 waves per minute per server
+  };
+  const calcVisitsPerServer = (min) => {
+    const m = parseInt(min) || 0;
+    return m * VISITS_PER_MINUTE;
+  };
+
+  const totalVisitsEstimate = calcTotalVisits(durationMin);
+  const totalWaves = calcTotalWaves(durationMin);
+  const visitsPerServer = calcVisitsPerServer(durationMin);
+  const activeVisitorsEstimate = WAVE_SIZE * servers.length;
+
   const formatDuration = (seconds) => {
     if (seconds <= 0) return '0 ثانية';
     if (seconds < 60) return `${seconds} ثانية`;
@@ -97,15 +108,9 @@ export default function Home() {
     return `${mins} دقيقة و ${secs} ثانية`;
   };
 
-  const handleVisitorsChange = (val) => {
-    setVisitors(val);
-  };
-  const estimatedSeconds = calcEstimatedSeconds(visitors);
-
-  // Countdown timer - updates every second based on real speed
+  // Countdown timer
   useEffect(() => {
     if (attackStartTime && monitoring && serverStatus.length > 0) {
-      // Calculate real speed from actual data
       const activeServers = serverStatus.filter(s => s.status === 'running' || s.status === 'starting');
       const finishedServers = serverStatus.filter(s => s.status === 'finished');
       const totalDone = serverStatus.reduce((sum, s) => sum + (s.visits || 0), 0);
@@ -113,7 +118,7 @@ export default function Home() {
       const maxElapsed = Math.max(...serverStatus.map(s => s.elapsed || 0), 1);
       
       if (totalDone > 0 && totalTarget > 0) {
-        const realSpeed = totalDone / maxElapsed; // visits per second across all servers
+        const realSpeed = totalDone / maxElapsed;
         const remaining = totalTarget - totalDone;
         if (realSpeed > 0) {
           const secsLeft = Math.ceil(remaining / realSpeed);
@@ -121,7 +126,6 @@ export default function Home() {
         }
       }
       
-      // All done
       if (activeServers.length === 0 && finishedServers.length > 0) {
         setRemainingSeconds(0);
       }
@@ -148,19 +152,16 @@ export default function Home() {
       });
       const data = await res.json();
       if (data.results) {
-        // Filter out old results - if no active attack, show as idle
         const filtered = data.results.map(s => {
           if (s.status === 'finished' && !attackStartTime) {
             return { ...s, status: 'idle', visits: 0, target: 0, progress: 0, elapsed: 0, errors: 0 };
           }
-          // If attack started and result timestamp is older than attack start, show as starting
           if (s.timestamp && attackStartTime && (s.timestamp * 1000) < attackStartTime) {
-            return { ...s, status: 'starting', visits: 0, target: parseInt(visitors) ? Math.ceil(parseInt(visitors) / servers.length) : 0, progress: 0, elapsed: 0, errors: 0 };
+            return { ...s, status: 'starting', visits: 0, target: visitsPerServer, progress: 0, elapsed: 0, errors: 0 };
           }
           return s;
         });
         setServerStatus(filtered);
-        // Auto-stop monitoring if all servers finished
         const activeServers = filtered.filter(s => s.status === 'running');
         const finishedServers = filtered.filter(s => s.status === 'finished');
         const allDone = activeServers.length === 0 && finishedServers.length > 0;
@@ -170,9 +171,9 @@ export default function Home() {
           const sumErrors = filtered.reduce((sum, s) => sum + (s.errors || 0), 0);
           const maxElapsed = Math.max(...filtered.map(s => s.elapsed || 0), 0);
           const totalRate = maxElapsed > 0 ? Math.round((sumVisits / maxElapsed) * 60) : 0;
-          const userTarget = parseInt(visitors) || 0;
-          setAttackSummary({ target: userTarget, visits: sumVisits, errors: sumErrors, elapsed: maxElapsed, rate: totalRate });
-          addLog(`✅ انتهت جميع العمليات | الهدف: ${userTarget} | الزيارات الناجحة: ${sumVisits} | الفاشلة: ${sumErrors} | الوقت: ${formatTime(maxElapsed)} | السرعة: ${totalRate}/دقيقة`);
+          const totalActiveVisitors = filtered.reduce((sum, s) => sum + (s.active_visitors || 0), 0);
+          setAttackSummary({ target: totalVisitsEstimate, visits: sumVisits, errors: sumErrors, elapsed: maxElapsed, rate: totalRate, activeVisitors: totalActiveVisitors });
+          addLog(`✅ انتهت جميع العمليات | المدة: ${durationMin} دقيقة | الزيارات: ${sumVisits} | الفاشلة: ${sumErrors} | الوقت: ${formatTime(maxElapsed)} | السرعة: ${totalRate}/دقيقة`);
         }
       }
     } catch (err) {
@@ -218,7 +219,7 @@ export default function Home() {
     if (!panelApiKey) return addLog('❌ خطأ: الرجاء إدخال مفتاح API أولاً');
     if (action === 'start' && !url) return addLog('❌ خطأ: الرجاء إدخال الرابط أولاً');
     if (action === 'start' && !/^https?:\/\//i.test(url)) return addLog('❌ خطأ: الرابط لازم يبدأ بـ http:// أو https://');
-    if (action === 'start' && !visitors) return addLog('❌ خطأ: الرجاء إدخال عدد الزوار');
+    if (action === 'start' && !durationMin) return addLog('❌ خطأ: الرجاء إدخال المدة بالدقائق');
 
     if (servers.length === 0) return addLog('❌ خطأ: لا يوجد سيرفرات، أضف سيرفر أولاً');
 
@@ -237,8 +238,7 @@ export default function Home() {
       addLog('⏳ تجهيز السيرفرات قد يستغرق عدة دقائق، الرجاء الانتظار...');
     }
     if (action === 'start') {
-      addLog(`📊 عدد الزوار: ${visitors} | الوقت المتوقع: ~${formatDuration(estimatedSeconds)} | أقصى سرعة`);
-      // Clear old results immediately
+      addLog(`📊 المدة: ${durationMin} دقيقة | الزيارات المتوقعة: ${totalVisitsEstimate.toLocaleString()} | 👥 ${activeVisitorsEstimate} زائر نشط | 🌊 ${totalWaves} موجة/سيرفر`);
       stopMonitoring();
       setServerStatus([]);
       setAttackStartTime(null);
@@ -249,7 +249,7 @@ export default function Home() {
       const res = await fetch('/api/control', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-api-key': panelApiKey },
-        body: JSON.stringify({ action, url, visitors: parseInt(visitors), servers, proxies: useProxy ? buildProxyList() : [], captchaApiKey: captchaEnabled ? captchaApiKey : '' })
+        body: JSON.stringify({ action, url, durationMin: parseInt(durationMin), servers, proxies: useProxy ? buildProxyList() : [], captchaApiKey: captchaEnabled ? captchaApiKey : '' })
       });
       const data = await res.json();
 
@@ -263,10 +263,9 @@ export default function Home() {
             addLog(`❌ ${r.host}: ${r.error}`);
           }
         });
-        // Start monitoring after starting attack - delay 8 seconds for servers to clean and start
         if (action === 'start') {
           setAttackStartTime(Date.now());
-          setRemainingSeconds(estimatedSeconds);
+          setRemainingSeconds(parseInt(durationMin) * 60);
           setAttackSummary(null);
           addLog('⏳ انتظار بدء العمليات على السيرفرات...');
           setTimeout(() => {
@@ -304,6 +303,8 @@ export default function Home() {
       case 'fast': return '⚡ FAST';
       case 'normal': return '🌐 NORMAL';
       case 'flaresolverr': return '🔥 FLARE';
+      case 'wave_cf': return '🌊 WAVE+CF';
+      case 'wave_fast': return '🌊 WAVE';
       default: return '';
     }
   };
@@ -314,6 +315,8 @@ export default function Home() {
       case 'fast': return '#22c55e';
       case 'normal': return '#3b82f6';
       case 'flaresolverr': return '#f97316';
+      case 'wave_cf': return '#06b6d4';
+      case 'wave_fast': return '#06b6d4';
       default: return '#6b7280';
     }
   };
@@ -369,7 +372,6 @@ export default function Home() {
     btnStart: { display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', backgroundColor: '#7f1d1d', color: '#fff', padding: '16px 8px', borderRadius: '6px', cursor: 'pointer', border: 'none', fontSize: '13px', fontFamily },
     btnStop: { display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', backgroundColor: '#374151', color: '#fff', padding: '16px 8px', borderRadius: '6px', cursor: 'pointer', border: 'none', fontSize: '13px', fontFamily },
     disabledBtn: { opacity: 0.5, cursor: 'not-allowed' },
-    // Monitoring Panel
     monitorPanel: { marginTop: '24px', border: '1px solid #14532d', borderRadius: '8px', padding: '16px', backgroundColor: '#0a0a0a' },
     monitorTitle: { fontSize: '16px', color: '#22c55e', marginBottom: '16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' },
     monitorRefresh: { fontSize: '12px', color: '#6b7280', cursor: 'pointer', background: 'none', border: '1px solid #374151', padding: '4px 12px', borderRadius: '4px', fontFamily },
@@ -383,12 +385,10 @@ export default function Home() {
     statLabel: { fontSize: '10px', color: '#6b7280', marginTop: '2px' },
     progressBar: { width: '100%', height: '8px', backgroundColor: '#1f2937', borderRadius: '4px', overflow: 'hidden' },
     progressFill: { height: '100%', borderRadius: '4px', transition: 'width 0.5s ease' },
-    // Totals
-    totalsRow: { display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px', marginTop: '16px', padding: '12px', backgroundColor: '#111827', borderRadius: '8px', border: '1px solid #166534' },
+    totalsRow: { display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px', marginTop: '16px', padding: '12px', backgroundColor: '#111827', borderRadius: '8px', border: '1px solid #166534' },
     totalBox: { textAlign: 'center' },
     totalValue: { fontSize: '24px', fontWeight: 'bold', color: '#22c55e' },
     totalLabel: { fontSize: '12px', color: '#9ca3af' },
-    // Logs
     logsHeader: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px', marginTop: '32px' },
     logsTitle: { fontSize: '14px', color: '#9ca3af' },
     clearBtn: { fontSize: '12px', color: '#6b7280', cursor: 'pointer', background: 'none', border: 'none', fontFamily },
@@ -398,10 +398,11 @@ export default function Home() {
     noServers: { color: '#4b5563', fontSize: '14px', textAlign: 'center' }
   };
 
-  // Calculate totals
+  // Calculate totals from monitoring
   const totalVisits = serverStatus.reduce((sum, s) => sum + (s.visits || 0), 0);
-  const totalTarget = parseInt(visitors) || 0;  // User-entered target (not sum of server targets)
+  const totalTarget = totalVisitsEstimate;
   const totalErrors = serverStatus.reduce((sum, s) => sum + (s.errors || 0), 0);
+  const totalActiveVisitors = serverStatus.reduce((sum, s) => sum + (s.active_visitors || 0), 0);
 
   return (
     <div style={styles.page}>
@@ -529,20 +530,40 @@ export default function Home() {
           <input type="text" value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://example.com" style={styles.urlInput} />
         </div>
 
-        {/* Visitors & Duration */}
+        {/* Duration & Stats */}
         <div style={styles.inputRow}>
           <div style={styles.inputGroup}>
-            <label style={styles.label}>👥 عدد الزوار</label>
-            <input type="number" value={visitors} onChange={(e) => handleVisitorsChange(e.target.value)} placeholder="100" min="1" style={styles.numberInput} />
+            <label style={styles.label}>⏱️ المدة (بالدقائق)</label>
+            <input type="number" value={durationMin} onChange={(e) => setDurationMin(e.target.value)} placeholder="5" min="1" style={styles.numberInput} />
+            <div style={{fontSize: '10px', color: '#6b7280', textAlign: 'center', marginTop: '4px'}}>
+              كل دقيقة = {VISITS_PER_MINUTE} زيارة/سيرفر
+            </div>
           </div>
           <div style={styles.inputGroup}>
-            <label style={styles.label}>⏱️ المدة المتوقعة</label>
+            <label style={styles.label}>⏳ الوقت المتبقي</label>
             <div style={{...styles.numberInput, display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: remainingSeconds !== null ? (remainingSeconds === 0 ? '#052e16' : '#1a1a2e') : '#0a1628', color: remainingSeconds !== null ? (remainingSeconds === 0 ? '#22c55e' : '#facc15') : '#4ade80', fontSize: '18px', fontWeight: 'bold', border: remainingSeconds !== null && remainingSeconds > 0 ? '1px solid #facc15' : undefined}}>
-              {remainingSeconds !== null ? (remainingSeconds === 0 ? '✅ انتهى!' : `⏳ ${formatDuration(remainingSeconds)}`) : formatDuration(estimatedSeconds)}
+              {remainingSeconds !== null ? (remainingSeconds === 0 ? '✅ انتهى!' : `⏳ ${formatDuration(remainingSeconds)}`) : `${durationMin || 0} دقيقة`}
             </div>
-            <div style={{fontSize: '10px', color: '#6b7280', textAlign: 'center', marginTop: '4px'}}>
-              {remainingSeconds !== null ? 'الوقت المتبقي بناءً على السرعة الفعلية' : `${servers.length} سيرفر × ${VISITS_PER_MIN_PER_SERVER} زيارة/دقيقة | بدون حد زمني ⚡`}
-            </div>
+          </div>
+        </div>
+
+        {/* Dynamic Stats Box */}
+        <div style={{display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '8px', marginTop: '12px', padding: '12px', backgroundColor: '#0a1628', borderRadius: '8px', border: '1px solid #1e3a5f'}}>
+          <div style={{textAlign: 'center'}}>
+            <div style={{fontSize: '20px', fontWeight: 'bold', color: '#06b6d4'}}>{totalVisitsEstimate.toLocaleString()}</div>
+            <div style={{fontSize: '10px', color: '#6b7280'}}>إجمالي الزيارات المتوقعة</div>
+          </div>
+          <div style={{textAlign: 'center'}}>
+            <div style={{fontSize: '20px', fontWeight: 'bold', color: '#22c55e'}}>👥 {activeVisitorsEstimate}</div>
+            <div style={{fontSize: '10px', color: '#6b7280'}}>زائر نشط دائماً</div>
+          </div>
+          <div style={{textAlign: 'center'}}>
+            <div style={{fontSize: '20px', fontWeight: 'bold', color: '#facc15'}}>🌊 {totalWaves * servers.length}</div>
+            <div style={{fontSize: '10px', color: '#6b7280'}}>إجمالي الموجات</div>
+          </div>
+          <div style={{textAlign: 'center'}}>
+            <div style={{fontSize: '20px', fontWeight: 'bold', color: '#a855f7'}}>30s</div>
+            <div style={{fontSize: '10px', color: '#6b7280'}}>مدة بقاء الزائر</div>
           </div>
         </div>
 
@@ -574,6 +595,14 @@ export default function Home() {
               </div>
             </div>
 
+            {/* Active Visitors Banner */}
+            {totalActiveVisitors > 0 && (
+              <div style={{textAlign:'center', padding:'12px', marginBottom:'12px', backgroundColor:'#052e16', border:'1px solid #22c55e', borderRadius:'8px'}}>
+                <div style={{fontSize:'28px', fontWeight:'bold', color:'#22c55e'}}>👥 {totalActiveVisitors}</div>
+                <div style={{fontSize:'12px', color:'#4ade80'}}>زائر نشط الآن على الموقع</div>
+              </div>
+            )}
+
             {/* Server Cards */}
             {serverStatus.map((s, i) => (
               <div key={i} style={styles.serverCard}>
@@ -587,6 +616,7 @@ export default function Home() {
                   </div>
                 </div>
                 {s.rate > 0 && <div style={{fontSize:'11px', color:'#4ade80', textAlign:'center', marginBottom:'8px'}}>⚡ {s.rate} زيارة/دقيقة</div>}
+                {s.active_visitors > 0 && <div style={{fontSize:'11px', color:'#06b6d4', textAlign:'center', marginBottom:'8px'}}>👥 {s.active_visitors} زائر نشط | 🌊 موجة {s.waves_done || 0}/{s.total_waves || 0}</div>}
 
                 {s.status !== 'offline' && s.status !== 'idle' && (
                   <>
@@ -638,6 +668,10 @@ export default function Home() {
                 <div style={styles.totalBox}>
                   <div style={styles.totalValue}>{totalTarget.toLocaleString()}</div>
                   <div style={styles.totalLabel}>إجمالي الهدف</div>
+                </div>
+                <div style={styles.totalBox}>
+                  <div style={{...styles.totalValue, color: '#06b6d4'}}>{totalActiveVisitors}</div>
+                  <div style={styles.totalLabel}>زوار نشطين الآن</div>
                 </div>
                 <div style={styles.totalBox}>
                   <div style={{...styles.totalValue, color: totalErrors > 0 ? '#ef4444' : '#22c55e'}}>{totalErrors}</div>

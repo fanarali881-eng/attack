@@ -1,15 +1,14 @@
 #!/usr/bin/env python3
 """
-TURBO v8 - Faster + Less Errors
+TURBO v9 - WAVE MODE
 =================================
-Fixes from v7:
-  - maxTimeout 60s→90s (some proxies need more time to solve challenge)
-  - 3 harvest retries (different session each time) instead of 2
-  - PAGES_PER_COOKIE 25→40 (less harvesting = faster overall)
-  - PARALLEL_PAGES 3→5 (more concurrent pageviews per cookie)
-  - Smarter error handling: skip dead cookies faster
-  - Better status reporting (elapsed as minutes:seconds)
-  - Continuous cookie supply: don't wait, keep feeding instances
+New in v9:
+  - Wave system: 60 visitors enter, stay 30 seconds, then next wave
+  - Input: duration in minutes (not visit count)
+  - 120 visits per minute (60 visitors × 2 waves per minute)
+  - Always 60 active visitors on site
+  - Visitors stay 30 seconds (appear as real active users)
+  - Auto-calculates total visits from duration
 """
 import requests as req_lib
 import threading
@@ -23,19 +22,21 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # ============ CONFIG ============
 FLARE_PORTS = [8191, 8192, 8193, 8194, 8195, 8196, 8197]
-PROXY_USER = "fanar"
-PROXY_PASS = "j7HGTQiRnys66RIM"
-PROXY_HOST = "proxy.packetstream.io"
-PROXY_PORT = "31112"
+PROXY_USER = os.environ.get("PROXY_USER", "fanar")
+PROXY_PASS = os.environ.get("PROXY_PASS", "j7HGTQiRnys66RIM")
+PROXY_HOST = os.environ.get("PROXY_HOST", "proxy.packetstream.io")
+PROXY_PORT = os.environ.get("PROXY_PORT", "31112")
 PROXY_COUNTRY = "SaudiArabia"
 
-DEFAULT_TOTAL = 556
-PAGES_PER_COOKIE = 40       # more pages = less harvesting overhead
-PARALLEL_PAGES = 5           # concurrent pageviews per cookie
-HARVEST_TIMEOUT = 95         # seconds (90s maxTimeout + 5s buffer)
-HARVEST_MAX_TIMEOUT = 90000  # ms for FlareSolverr
-HARVEST_RETRIES = 3          # retry harvest with new session
-PAGE_TIMEOUT = 12            # seconds per pageview
+WAVE_SIZE = 60              # visitors per wave
+WAVE_INTERVAL = 30          # seconds between waves (= stay time)
+VISITS_PER_MINUTE = 120     # 60 visitors × 2 waves/min
+STAY_TIME = 30              # seconds each visitor stays on page
+
+HARVEST_TIMEOUT = 95
+HARVEST_MAX_TIMEOUT = 90000
+HARVEST_RETRIES = 3
+PAGE_TIMEOUT = 12
 STATUS_FILE = "/root/visit_status.json"
 
 PAGES = ["/", "/about", "/contact", "/menu", "/gallery",
@@ -58,20 +59,20 @@ REFERRERS = [
 
 # ============ STATS ============
 stats = {"success": 0, "failed": 0, "start_time": 0, "target": 0,
-         "ips": set(), "cookies_ok": 0, "cookies_fail": 0, "mode": ""}
+         "ips": set(), "cookies_ok": 0, "cookies_fail": 0, "mode": "",
+         "active_visitors": 0, "waves_done": 0, "total_waves": 0,
+         "duration_min": 0}
 lock = threading.Lock()
-target_done = threading.Event()
+stop_event = threading.Event()
 
 def write_status():
     try:
         e = time.time() - stats["start_time"] if stats["start_time"] else 0
         r = stats["success"] / e * 60 if e > 0 else 0
         p = min((stats["success"] / stats["target"] * 100) if stats["target"] > 0 else 0, 100)
-        mins = int(e // 60)
-        secs = int(e % 60)
         with open(STATUS_FILE, "w") as f:
             json.dump({
-                "status": "finished" if stats["success"] >= stats["target"] else "running",
+                "status": "finished" if stats["waves_done"] >= stats["total_waves"] else "running",
                 "visits": stats["success"], "errors": stats["failed"],
                 "target": stats["target"], "progress": round(p, 1),
                 "elapsed": round(e, 1), "rate": round(r, 1),
@@ -79,6 +80,10 @@ def write_status():
                 "timestamp": int(time.time()), "mode": stats["mode"],
                 "unique_ips": len(stats["ips"]),
                 "cookies": f"{stats['cookies_ok']}/{stats['cookies_ok']+stats['cookies_fail']}",
+                "active_visitors": stats["active_visitors"],
+                "waves_done": stats["waves_done"],
+                "total_waves": stats["total_waves"],
+                "duration_min": stats["duration_min"],
             }, f)
     except:
         pass
@@ -86,19 +91,17 @@ def write_status():
 def log_progress():
     with lock:
         total = stats["success"] + stats["failed"]
-        if total % 25 == 0 or total <= 10 or stats["success"] >= stats["target"]:
+        if total % 20 == 0 or total <= 10 or stats["waves_done"] >= stats["total_waves"]:
             e = time.time() - stats["start_time"]
             r = stats["success"] / e * 60 if e > 0 else 0
             write_status()
-            print(f"  [{total}] ✅{stats['success']} ❌{stats['failed']} | "
-                  f"{r:.0f}/min | 🌍{len(stats['ips'])} | 🍪{stats['cookies_ok']}", flush=True)
+            print(f"  [Wave {stats['waves_done']}/{stats['total_waves']}] ✅{stats['success']} ❌{stats['failed']} | "
+                  f"{r:.0f}/min | 👥{stats['active_visitors']} active | 🌍{len(stats['ips'])}", flush=True)
 
 def add_ok(sid=None):
     with lock:
         stats["success"] += 1
         if sid: stats["ips"].add(sid)
-        if stats["success"] >= stats["target"]:
-            target_done.set()
     log_progress()
 
 def add_fail():
@@ -148,9 +151,9 @@ def ensure_flare():
     return ok > 0
 
 def harvest(url, port):
-    """Harvest one CF cookie with retries. Returns dict or None."""
+    """Harvest one CF cookie with retries."""
     for attempt in range(HARVEST_RETRIES):
-        if target_done.is_set(): return None
+        if stop_event.is_set(): return None
         sid = "".join(random.choices(string.ascii_lowercase + string.digits, k=10))
         data = {
             "cmd": "request.get", "url": url, "maxTimeout": HARVEST_MAX_TIMEOUT,
@@ -173,10 +176,10 @@ def harvest(url, port):
             pass
     return None
 
-# ============ FAST PAGEVIEW ============
-def pageview(url, ck, idx):
-    """Single fast pageview. Returns True/False."""
-    page = PAGES[idx % len(PAGES)]
+# ============ VISITOR (stays on page) ============
+def visitor_session(url, ck, visitor_id):
+    """Single visitor: opens page, stays STAY_TIME seconds, then leaves."""
+    page = PAGES[visitor_id % len(PAGES)]
     full = url.rstrip("/") + page
     ref = random.choice(REFERRERS)
     proxy = f"http://{PROXY_USER}:{PROXY_PASS}_country-{PROXY_COUNTRY}_session-{ck['sid']}@{PROXY_HOST}:{PROXY_PORT}"
@@ -193,136 +196,244 @@ def pageview(url, ck, idx):
         "Cookie": "; ".join([f"{k}={v}" for k, v in ck["cookies"].items()]),
     }
     if ref: hdrs["Referer"] = ref
+    
     try:
         from curl_cffi import requests as cr
+        # Open the page
         r = cr.get(full, headers=hdrs, proxy=proxy, timeout=PAGE_TIMEOUT,
                   allow_redirects=True, verify=False, impersonate="chrome120")
-        return r.status_code == 200 and len(r.text) > 1000 and "just a moment" not in r.text[:500].lower()
+        if r.status_code == 200 and len(r.text) > 1000 and "just a moment" not in r.text[:500].lower():
+            add_ok(ck["sid"])
+            with lock:
+                stats["active_visitors"] += 1
+            
+            # Stay on page for STAY_TIME seconds (simulate real browsing)
+            stay = STAY_TIME + random.randint(-5, 5)  # 25-35 seconds randomly
+            time.sleep(max(stay, 10))
+            
+            with lock:
+                stats["active_visitors"] -= 1
+            return True
+        else:
+            add_fail()
+            return False
     except:
+        add_fail()
         return False
 
-# ============ COOKIE CYCLE ============
-def cookie_cycle(url, port, cid):
-    """Harvest 1 cookie → send parallel pageviews. Stop on consecutive fails."""
-    if target_done.is_set(): return
-    
-    ck = harvest(url, port)
-    if not ck:
-        with lock: stats["cookies_fail"] += 1
-        return
-    
-    with lock: stats["cookies_ok"] += 1
-    add_ok(ck["sid"])  # harvest = 1 visit
-    
-    # Send pageviews in mini-batches of PARALLEL_PAGES
-    consec_fail = 0
-    i = 0
-    while i < PAGES_PER_COOKIE - 1 and not target_done.is_set():
-        batch_size = min(PARALLEL_PAGES, PAGES_PER_COOKIE - 1 - i)
-        
-        # Run batch in parallel using threads
-        results = []
-        result_lock = threading.Lock()
-        threads = []
-        
-        for j in range(batch_size):
-            def do_pv(idx=i+j):
-                ok = pageview(url, ck, idx)
-                with result_lock:
-                    results.append(ok)
-            t = threading.Thread(target=do_pv)
-            t.start()
-            threads.append(t)
-        
-        for t in threads:
-            t.join(timeout=PAGE_TIMEOUT + 3)
-        
-        # Process results
-        for ok in results:
-            if target_done.is_set(): break
-            if ok:
-                add_ok()
-                consec_fail = 0
-            else:
-                add_fail()
-                consec_fail += 1
-        
-        if consec_fail >= 3:
-            break  # cookie dead, move to next
-        
-        i += batch_size
-        # No delay between batches - max speed
-
-# ============ FAST DIRECT (no CF) ============
-def fast_direct(url, vid):
+def visitor_session_direct(url, visitor_id):
+    """Direct visitor (no CF): opens page, stays STAY_TIME seconds."""
     sid = "".join(random.choices(string.ascii_lowercase + string.digits, k=10))
     px = f"http://{PROXY_USER}:{PROXY_PASS}_country-{PROXY_COUNTRY}_session-{sid}@{PROXY_HOST}:{PROXY_PORT}"
-    page = PAGES[vid % len(PAGES)]
+    page = PAGES[visitor_id % len(PAGES)]
+    ref = random.choice(REFERRERS)
+    hdrs = {
+        "User-Agent": f"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/{random.randint(118,124)}.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "ar,en-US;q=0.9,en;q=0.8",
+    }
+    if ref: hdrs["Referer"] = ref
+    
     try:
         import urllib3; urllib3.disable_warnings()
-        r = req_lib.get(url.rstrip("/")+page, headers={"User-Agent": "Mozilla/5.0 Chrome/122"},
+        r = req_lib.get(url.rstrip("/")+page, headers=hdrs,
                        proxies={"http": px, "https": px}, timeout=12, verify=False)
-        if r.status_code == 200 and len(r.text) > 500: add_ok(sid)
-        else: add_fail()
-    except: add_fail()
+        if r.status_code == 200 and len(r.text) > 500:
+            add_ok(sid)
+            with lock:
+                stats["active_visitors"] += 1
+            
+            stay = STAY_TIME + random.randint(-5, 5)
+            time.sleep(max(stay, 10))
+            
+            with lock:
+                stats["active_visitors"] -= 1
+            return True
+        else:
+            add_fail()
+            return False
+    except:
+        add_fail()
+        return False
+
+# ============ WAVE SYSTEM ============
+def run_wave_cf(url, wave_num, cookies_pool):
+    """Run one wave of WAVE_SIZE visitors using CF cookies."""
+    print(f"\n🌊 Wave {wave_num + 1}/{stats['total_waves']} - Sending {WAVE_SIZE} visitors...", flush=True)
+    
+    threads = []
+    for i in range(WAVE_SIZE):
+        if stop_event.is_set(): break
+        # Pick a cookie from pool (round-robin)
+        ck = cookies_pool[i % len(cookies_pool)] if cookies_pool else None
+        if not ck: continue
+        
+        vid = wave_num * WAVE_SIZE + i
+        t = threading.Thread(target=visitor_session, args=(url, ck, vid))
+        t.start()
+        threads.append(t)
+        # Small stagger to avoid all hitting at exact same time
+        time.sleep(0.1)
+    
+    # Don't wait for threads to finish - they'll stay for STAY_TIME
+    # Return immediately so next wave can be scheduled
+    with lock:
+        stats["waves_done"] += 1
+    write_status()
+    return threads
+
+def run_wave_direct(url, wave_num):
+    """Run one wave of WAVE_SIZE visitors without CF."""
+    print(f"\n🌊 Wave {wave_num + 1}/{stats['total_waves']} - Sending {WAVE_SIZE} visitors...", flush=True)
+    
+    threads = []
+    for i in range(WAVE_SIZE):
+        if stop_event.is_set(): break
+        vid = wave_num * WAVE_SIZE + i
+        t = threading.Thread(target=visitor_session_direct, args=(url, vid))
+        t.start()
+        threads.append(t)
+        time.sleep(0.05)
+    
+    with lock:
+        stats["waves_done"] += 1
+    write_status()
+    return threads
+
+# ============ COOKIE HARVESTER ============
+def harvest_cookies(url, count):
+    """Pre-harvest cookies for wave system."""
+    print(f"\n🍪 Harvesting {count} cookies...", flush=True)
+    cookies = []
+    n_inst = len(FLARE_PORTS)
+    
+    with ThreadPoolExecutor(max_workers=n_inst) as ex:
+        futs = []
+        for i in range(count + 5):  # extra buffer
+            port = FLARE_PORTS[i % n_inst]
+            futs.append(ex.submit(harvest, url, port))
+            time.sleep(0.2)
+        
+        for f in as_completed(futs):
+            try:
+                ck = f.result(timeout=120)
+                if ck:
+                    cookies.append(ck)
+                    with lock:
+                        stats["cookies_ok"] += 1
+                    print(f"  🍪 {len(cookies)}/{count} cookies harvested", flush=True)
+                else:
+                    with lock:
+                        stats["cookies_fail"] += 1
+            except:
+                with lock:
+                    stats["cookies_fail"] += 1
+            
+            if len(cookies) >= count:
+                break
+    
+    print(f"  ✅ {len(cookies)} cookies ready", flush=True)
+    return cookies
 
 # ============ MAIN ============
-def run(url, total):
+def run(url, duration_min):
+    total_waves = duration_min * 2  # 2 waves per minute (every 30 sec)
+    total_visits = total_waves * WAVE_SIZE  # estimated total
+    
     print(f"\n{'='*60}", flush=True)
-    print(f"🚀 TURBO v8", flush=True)
-    print(f"Target: {url} | Visits: {total}", flush=True)
-    print(f"Pages/cookie: {PAGES_PER_COOKIE} | Parallel: {PARALLEL_PAGES}", flush=True)
-    print(f"Harvest retries: {HARVEST_RETRIES} | Timeout: {HARVEST_MAX_TIMEOUT//1000}s", flush=True)
+    print(f"🚀 TURBO v9 - WAVE MODE", flush=True)
+    print(f"Target: {url}", flush=True)
+    print(f"Duration: {duration_min} minutes", flush=True)
+    print(f"Waves: {total_waves} (every {WAVE_INTERVAL}s)", flush=True)
+    print(f"Visitors per wave: {WAVE_SIZE}", flush=True)
+    print(f"Expected visits: {total_visits}", flush=True)
+    print(f"Active visitors: ~{WAVE_SIZE} at all times", flush=True)
     print(f"{'='*60}\n", flush=True)
     
     is_cf = detect(url)
     
     stats["start_time"] = time.time()
-    stats["target"] = total
+    stats["target"] = total_visits
     stats["success"] = 0; stats["failed"] = 0
     stats["ips"] = set(); stats["cookies_ok"] = 0; stats["cookies_fail"] = 0
+    stats["active_visitors"] = 0; stats["waves_done"] = 0
+    stats["total_waves"] = total_waves; stats["duration_min"] = duration_min
     
     if is_cf:
-        stats["mode"] = "turbo_v8"
+        stats["mode"] = "wave_cf"
         if not ensure_flare(): print("❌ No FlareSolverr!", flush=True); return
         
-        # More buffer for failures
-        n_cookies = (total // PAGES_PER_COOKIE) + 15
-        n_inst = len(FLARE_PORTS)
+        # Pre-harvest cookies (need enough for all waves)
+        # Each cookie can be reused across waves
+        cookies_needed = min(WAVE_SIZE, 30)  # 30 unique cookies, reused across visitors
+        cookies = harvest_cookies(url, cookies_needed)
         
-        print(f"\n📋 ~{n_cookies} cookies × {PAGES_PER_COOKIE} pages | {n_inst} instances", flush=True)
-        print(f"   Stop at {total} visits\n", flush=True)
+        if not cookies:
+            print("❌ No cookies harvested!", flush=True)
+            return
+        
         write_status()
         
-        with ThreadPoolExecutor(max_workers=n_inst) as ex:
-            futs = []
-            for i in range(n_cookies):
-                if target_done.is_set(): break
-                port = FLARE_PORTS[i % n_inst]
-                f = ex.submit(cookie_cycle, url, port, i)
-                futs.append(f)
-                time.sleep(0.15)  # faster stagger
+        # Run waves
+        all_threads = []
+        for wave in range(total_waves):
+            if stop_event.is_set(): break
             
-            for f in as_completed(futs):
-                try: f.result(timeout=300)  # 5 min max per cycle (3 retries × 95s)
-                except: pass
+            wave_threads = run_wave_cf(url, wave, cookies)
+            all_threads.extend(wave_threads)
+            
+            # Wait WAVE_INTERVAL before next wave
+            # (previous wave visitors are still on the page)
+            if wave < total_waves - 1:
+                print(f"  ⏳ Next wave in {WAVE_INTERVAL}s... (👥 {stats['active_visitors']} active)", flush=True)
+                for _ in range(WAVE_INTERVAL):
+                    if stop_event.is_set(): break
+                    time.sleep(1)
+            
+            # Refresh cookies periodically (every 5 waves)
+            if (wave + 1) % 5 == 0 and wave < total_waves - 1:
+                print("  🔄 Refreshing cookies...", flush=True)
+                new_cookies = harvest_cookies(url, min(10, cookies_needed))
+                if new_cookies:
+                    cookies = new_cookies + cookies[:cookies_needed - len(new_cookies)]
+        
+        # Wait for last wave visitors to finish
+        print("\n⏳ Waiting for last visitors to leave...", flush=True)
+        for t in all_threads[-WAVE_SIZE:]:
+            t.join(timeout=STAY_TIME + 10)
+    
     else:
-        stats["mode"] = "fast"
-        print(f"\n⚡ FAST MODE\n", flush=True)
+        stats["mode"] = "wave_fast"
         write_status()
-        with ThreadPoolExecutor(max_workers=30) as ex:
-            list(ex.map(lambda v: fast_direct(url, v), range(total)))
+        
+        all_threads = []
+        for wave in range(total_waves):
+            if stop_event.is_set(): break
+            
+            wave_threads = run_wave_direct(url, wave)
+            all_threads.extend(wave_threads)
+            
+            if wave < total_waves - 1:
+                print(f"  ⏳ Next wave in {WAVE_INTERVAL}s... (👥 {stats['active_visitors']} active)", flush=True)
+                for _ in range(WAVE_INTERVAL):
+                    if stop_event.is_set(): break
+                    time.sleep(1)
+        
+        print("\n⏳ Waiting for last visitors to leave...", flush=True)
+        for t in all_threads[-WAVE_SIZE:]:
+            t.join(timeout=STAY_TIME + 10)
     
     write_status()
     t = time.time() - stats["start_time"]
     print(f"\n{'='*60}", flush=True)
-    print(f"🏁 DONE! ✅{stats['success']}/{total} ❌{stats['failed']}", flush=True)
+    print(f"🏁 DONE! ✅{stats['success']}/{total_visits} ❌{stats['failed']}", flush=True)
     if t > 0:
         print(f"⏱️ {t:.0f}s ({int(t//60)}m{int(t%60)}s) | 🚀{stats['success']/t*60:.0f}/min", flush=True)
+    print(f"🌊 Waves: {stats['waves_done']}/{total_waves}", flush=True)
     print(f"🌍 {len(stats['ips'])} IPs | 🍪 {stats['cookies_ok']}/{stats['cookies_ok']+stats['cookies_fail']}", flush=True)
     print(f"{'='*60}", flush=True)
 
 if __name__ == "__main__":
     url = sys.argv[1] if len(sys.argv) > 1 else "https://makansalameh.com/"
-    total = int(sys.argv[2]) if len(sys.argv) > 2 else DEFAULT_TOTAL
-    run(url, total)
+    duration = int(sys.argv[2]) if len(sys.argv) > 2 else 5  # default 5 minutes
+    run(url, duration)

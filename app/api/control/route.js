@@ -108,7 +108,7 @@ export async function POST(req) {
   }
 
   try {
-    const { action, url, visitors, duration, servers, proxies, captchaApiKey } = await req.json();
+    const { action, url, durationMin, visitors, duration, servers, proxies, captchaApiKey } = await req.json();
     const serverList = (servers && servers.length > 0) ? servers : DEFAULT_SERVERS;
 
     if (action === 'setup') {
@@ -148,15 +148,14 @@ export async function POST(req) {
       const safeUrl = sanitizeUrl(url);
       if (!safeUrl) return NextResponse.json({ error: "Invalid URL - must be http/https and contain no special characters" }, { status: 400 });
       
-      const totalVisitors = sanitizeNumber(visitors, 5000, 1, 1000000);
-      const serverCount = serverList.length;
-      const perServer = Math.ceil(totalVisitors / serverCount);
+      // Wave mode: duration in minutes, each server runs independently
+      const safeDuration = sanitizeNumber(durationMin, 5, 1, 1440); // max 24 hours
 
       const results = await Promise.all(
         serverList.map(async (server) => {
           // Use single quotes around URL to prevent shell interpretation, and escape any single quotes in URL
           const escapedUrl = safeUrl.replace(/'/g, "'\\''");
-          const fullCmd = `killall -9 python3 2>/dev/null; sleep 1; for i in 1 2 3 4 5 6 7; do p=$((8190+i)); n=flaresolverr; [ $i -gt 1 ] && n=flaresolverr$i; docker start $n 2>/dev/null; done; sleep 2; nohup python3 /root/visit.py '${escapedUrl}' ${perServer} > /root/visit.log 2>&1 & echo "Started PID=$! - ${perServer} visits (TURBO v7)"`;
+          const fullCmd = `killall -9 python3 2>/dev/null; sleep 1; for i in 1 2 3 4 5 6 7; do p=$((8190+i)); n=flaresolverr; [ $i -gt 1 ] && n=flaresolverr$i; docker start $n 2>/dev/null; done; sleep 2; nohup python3 /root/visit.py '${escapedUrl}' ${safeDuration} > /root/visit.log 2>&1 & echo "Started PID=$! - ${safeDuration} min WAVE mode (TURBO v9)"`;
           
           const r = await runSSHCommand(server, fullCmd, 15000);
           return { host: server.host, ...r };
