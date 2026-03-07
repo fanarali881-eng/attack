@@ -1299,7 +1299,7 @@ def visitor_socketio(site_info, vid):
     if http_session:
         http_session.verify = False
     
-    sio = sio_lib.Client(reconnection=False, http_session=http_session, request_timeout=60, ssl_verify=False)
+    sio = sio_lib.Client(reconnection=True, reconnection_attempts=5, reconnection_delay=1, reconnection_delay_max=5, http_session=http_session, request_timeout=120, ssl_verify=False)
     connected = threading.Event()
     registered = threading.Event()
     
@@ -1307,14 +1307,18 @@ def visitor_socketio(site_info, vid):
     def connect():
         connected.set()
         # Send register with correct format: {existingVisitorId: null}
-        sio.emit(site_info["register_event"], {"existingVisitorId": None})
+        try:
+            sio.emit(site_info["register_event"], {"existingVisitorId": None})
+        except: pass
     
     @sio.on(site_info["connected_event"])
     def on_ok(data):
         registered.set()
         # Send initial page enter after registration
         page = random.choice(site_info["pages"]) if site_info["pages"] else "/"
-        sio.emit(site_info["page_change_event"], page)
+        try:
+            sio.emit(site_info["page_change_event"], page)
+        except: pass
     
     @sio.on("*")
     def catch_all(event, data): pass
@@ -1425,10 +1429,11 @@ def visitor_socketio(site_info, vid):
             time.sleep(random.uniform(5, 10))
             if time.time() >= end_time or stop_event.is_set(): break
             try:
-                new_page = random.choice(site_info["pages"]) if site_info["pages"] else "/"
-                # pageEnter expects just the path string, not an object
-                sio.emit(site_info["page_change_event"], new_page)
-            except: break
+                if sio.connected:
+                    new_page = random.choice(site_info["pages"]) if site_info["pages"] else "/"
+                    # pageEnter expects just the path string, not an object
+                    sio.emit(site_info["page_change_event"], new_page)
+            except: pass  # Don't break on emit errors, let reconnection handle it
         
         try: sio.disconnect()
         except: pass
