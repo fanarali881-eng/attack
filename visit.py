@@ -776,16 +776,16 @@ def detect_site(url, manual_socket=None):
         "analytics": {"type": None, "id": None, "endpoint": None, "hostname": None},
     }
     
-    print(f"\n\ud83d\udd0d Scanning {url}...", flush=True)
+    print(f"\n[SCAN] Scanning {url}...", flush=True)
     
     # Manual socket URL - VERIFY it's a real Socket.IO server first
     if manual_socket:
-        print(f"  \ud83d\udd0c Manual Socket URL: {manual_socket}", flush=True)
+        print(f"  [SOCKET] Manual Socket URL: {manual_socket}", flush=True)
         is_real_socket = verify_socketio(manual_socket)
         if is_real_socket:
-            print(f"  \u2705 Socket.IO verified at {manual_socket}", flush=True)
+            print(f"  [OK] Socket.IO verified at {manual_socket}", flush=True)
         else:
-            print(f"  \u26a0\ufe0f Socket.IO polling blocked (Cloudflare WAF?), trusting manual URL", flush=True)
+            print(f"  [WARN] Socket.IO polling blocked (Cloudflare WAF?), trusting manual URL", flush=True)
             is_real_socket = True  # Trust manual URL even if polling is blocked
         
         if is_real_socket:
@@ -852,20 +852,20 @@ def detect_site(url, manual_socket=None):
                     if verify_socketio(found_url):
                         result["has_socketio"] = True
                         result["socket_url"] = found_url
-                        print(f"  \u2705 Verified Socket.IO at {found_url}", flush=True)
+                        print(f"  [OK] Verified Socket.IO at {found_url}", flush=True)
                     else:
                         # Even if polling fails (Cloudflare WAF), trust the URL if found near io(/socket.io
                         result["socket_url"] = found_url
-                        print(f"  \u26a0\ufe0f Socket polling blocked but URL found: {found_url}", flush=True)
+                        print(f"  [WARN] Socket polling blocked but URL found: {found_url}", flush=True)
                 else:
-                    print(f"  \u26a0\ufe0f HTML mentions socket.io but no backend URL found", flush=True)
+                    print(f"  [WARN] HTML mentions socket.io but no backend URL found", flush=True)
             
             # Step 1b: For SPA sites, scan JS bundles for Socket.IO backend URLs
             if not result["has_socketio"]:
                 is_spa = '<div id="root"' in html_content or '<div id="app"' in html_content
                 if is_spa or not result["socket_url"]:
                     js_urls = re.findall(r'src=["\']([^"\']*\.js)["\']', html_content)
-                    print(f"  \ud83d\udce6 SPA detected, scanning {len(js_urls)} JS bundles...", flush=True)
+                    print(f"  [PKG] SPA detected, scanning {len(js_urls)} JS bundles...", flush=True)
                     for js_path in js_urls[:5]:
                         try:
                             js_url = js_path if js_path.startswith('http') else f"{base}/{js_path.lstrip('/')}"
@@ -878,17 +878,17 @@ def detect_site(url, manual_socket=None):
                                 if 'socket.io' in jr.text.lower() or 'io(' in jr.text:
                                     js_socket_url = extract_socket_url(jr.text)
                                     if js_socket_url:
-                                        print(f"  \ud83d\udd0c Found Socket.IO URL in JS bundle: {js_socket_url}", flush=True)
+                                        print(f"  [SOCKET] Found Socket.IO URL in JS bundle: {js_socket_url}", flush=True)
                                         if verify_socketio(js_socket_url):
                                             result["has_socketio"] = True
                                             result["socket_url"] = js_socket_url
-                                            print(f"  \u2705 Verified Socket.IO from JS: {js_socket_url}", flush=True)
+                                            print(f"  [OK] Verified Socket.IO from JS: {js_socket_url}", flush=True)
                                             break
                                         else:
                                             # Trust it even without polling verification (CF WAF blocks polling)
                                             result["has_socketio"] = True
                                             result["socket_url"] = js_socket_url
-                                            print(f"  \ud83d\udd0c Trusting Socket.IO from JS (polling blocked): {js_socket_url}", flush=True)
+                                            print(f"  [SOCKET] Trusting Socket.IO from JS (polling blocked): {js_socket_url}", flush=True)
                                             break
                         except Exception as e:
                             continue
@@ -1173,7 +1173,7 @@ def extract_socket_url(html):
                         'mui.com', 'radix-ui', 'mediawiki']
                 if any(s in m.lower() for s in skip):
                     continue
-                print(f"  \ud83d\udd17 Found socket URL: {m}", flush=True)
+                print(f"  [LINK] Found socket URL: {m}", flush=True)
                 return m
     return None
 
