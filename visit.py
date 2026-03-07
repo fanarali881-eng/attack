@@ -951,25 +951,14 @@ def visitor_socketio(site_info, vid):
     fp, profile = gen_fingerprint()
     fp["page"] = random.choice(site_info["pages"]) if site_info["pages"] else "/"
     
-    # Socket.IO backends (e.g. onrender.com) are NOT behind Cloudflare
-    # Connect directly without proxy - faster and saves proxy credit
+    # ALWAYS use proxy for Socket.IO to avoid rate limiting per VPS IP
     socket_url = site_info["socket_url"]
-    use_proxy_for_socket = False
-    
-    # Only use proxy if socket URL is on the same domain as the target (behind Cloudflare)
-    if socket_url and site_info.get("base_url"):
-        from urllib.parse import urlparse as _urlparse
-        socket_host = _urlparse(socket_url).netloc
-        target_host = _urlparse(site_info["base_url"]).netloc
-        if socket_host == target_host:
-            use_proxy_for_socket = True  # Same domain = behind same protection
     
     http_session = None
-    if use_proxy_for_socket:
-        proxy_url = get_proxy_url()
-        if proxy_url:
-            http_session = requests.Session()
-            http_session.proxies = {"http": proxy_url, "https": proxy_url}
+    proxy_url = get_proxy_url()
+    if proxy_url:
+        http_session = requests.Session()
+        http_session.proxies = {"http": proxy_url, "https": proxy_url}
     
     sio = sio_lib.Client(reconnection=False, http_session=http_session, request_timeout=30)
     connected = threading.Event()
