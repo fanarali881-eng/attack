@@ -1703,13 +1703,13 @@ def run_wave(wave_num, site_info):
     delay_between = 0.15
     
     if site_info['mode'] == 'socketio' and PROXY_USER:
-        # Socket.IO through proxy - 3 visitors/wave with 5s delay to avoid 429
-        # 9 servers x 3 visitors = 27 per wave cycle, spread over 15s
+        # Socket.IO through proxy - 5 visitors/wave with 3s delay
+        # 9 servers x 5 visitors = 45 per wave cycle, spread with jitter
         # With full-duration stay = visitors accumulate over time
-        actual_wave_size = min(WAVE_SIZE, 3)  # 3 visitors per wave per server
-        delay_between = 5.0  # 5s between each connection to avoid rate limit
-        # Random jitter at wave start to desync servers (0-7s)
-        time.sleep(random.uniform(0, 7))
+        actual_wave_size = min(WAVE_SIZE, 5)  # 5 visitors per wave per server
+        delay_between = 3.0  # 3s between each connection
+        # Random jitter at wave start to desync servers (0-10s)
+        time.sleep(random.uniform(0, 10))
     
     print(f"\n🌊 Wave {wave_num+1}/{stats['total_waves']} - "
           f"Sending {actual_wave_size} visitors ({site_info['mode']}/{site_info['protection']})...", flush=True)
@@ -1783,11 +1783,11 @@ def run(url, duration_min, manual_socket=None):
     
     # For socketio with proxy, use more frequent smaller waves
     if site_info['mode'] == 'socketio' and PROXY_USER:
-        # 3 visitors every 20s per server = ~9 visitors/min/server
-        # 9 servers x 9/min = 81 new visitors/min, all stay for full duration
-        # After 5 min = ~400+ active visitors with minimal 429 errors
-        total_waves = max(1, duration_min * 3)  # 3 waves per minute
-        WAVE_INTERVAL_ACTUAL = 20  # 20 seconds between waves
+        # 5 visitors every 15s per server = ~20 visitors/min/server
+        # 9 servers x 20/min = 180 new visitors/min, all stay for full duration
+        # After 5 min = ~500+ active visitors
+        total_waves = max(1, duration_min * 4)  # 4 waves per minute
+        WAVE_INTERVAL_ACTUAL = 15  # 15 seconds between waves
     else:
         total_waves = max(1, duration_min * 2)
         WAVE_INTERVAL_ACTUAL = WAVE_INTERVAL
