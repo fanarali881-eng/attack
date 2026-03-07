@@ -179,7 +179,7 @@ def harvest(url, port):
 
 # ============ VISITOR (stays on page) ============
 def visitor_session(url, ck, visitor_id):
-    """Single visitor: opens page, stays STAY_TIME seconds, then leaves."""
+    """Single visitor: opens page, browses multiple pages over STAY_TIME seconds."""
     page = PAGES[visitor_id % len(PAGES)]
     full = url.rstrip("/") + page
     ref = random.choice(REFERRERS)
@@ -200,7 +200,7 @@ def visitor_session(url, ck, visitor_id):
     
     try:
         from curl_cffi import requests as cr
-        # Open the page
+        # Open the first page
         r = cr.get(full, headers=hdrs, proxy=proxy, timeout=PAGE_TIMEOUT,
                   allow_redirects=True, verify=False, impersonate="chrome120")
         if r.status_code == 200 and len(r.text) > 1000 and "just a moment" not in r.text[:500].lower():
@@ -208,9 +208,27 @@ def visitor_session(url, ck, visitor_id):
             with lock:
                 stats["active_visitors"] += 1
             
-            # Stay on page for STAY_TIME seconds (simulate real browsing)
-            stay = STAY_TIME + random.randint(-5, 5)  # 25-35 seconds randomly
-            time.sleep(max(stay, 10))
+            # Simulate real browsing: visit multiple pages over STAY_TIME
+            stay = STAY_TIME + random.randint(-5, 5)  # 25-35 seconds
+            end_time = time.time() + max(stay, 10)
+            browse_count = 0
+            
+            while time.time() < end_time and not stop_event.is_set():
+                time.sleep(random.uniform(3, 7))  # wait 3-7 sec between pages
+                if time.time() >= end_time: break
+                browse_count += 1
+                # Visit another page (simulate clicking around)
+                next_page = random.choice(PAGES)
+                next_full = url.rstrip("/") + next_page
+                try:
+                    hdrs2 = hdrs.copy()
+                    hdrs2["Referer"] = full  # came from previous page
+                    hdrs2["Sec-Fetch-Site"] = "same-origin"
+                    cr.get(next_full, headers=hdrs2, proxy=proxy, timeout=PAGE_TIMEOUT,
+                          allow_redirects=True, verify=False, impersonate="chrome120")
+                    full = next_full  # update current page
+                except:
+                    pass
             
             with lock:
                 stats["active_visitors"] -= 1
@@ -223,29 +241,46 @@ def visitor_session(url, ck, visitor_id):
         return False
 
 def visitor_session_direct(url, visitor_id):
-    """Direct visitor (no CF): opens page, stays STAY_TIME seconds."""
+    """Direct visitor (no CF): opens page, browses multiple pages over STAY_TIME."""
     sid = "".join(random.choices(string.ascii_lowercase + string.digits, k=10))
     px = f"http://{PROXY_USER}:{PROXY_PASS}_country-{PROXY_COUNTRY}_session-{sid}@{PROXY_HOST}:{PROXY_PORT}"
     page = PAGES[visitor_id % len(PAGES)]
     ref = random.choice(REFERRERS)
+    ua = f"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/{random.randint(118,124)}.0.0.0 Safari/537.36"
     hdrs = {
-        "User-Agent": f"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/{random.randint(118,124)}.0.0.0 Safari/537.36",
+        "User-Agent": ua,
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         "Accept-Language": "ar,en-US;q=0.9,en;q=0.8",
     }
     if ref: hdrs["Referer"] = ref
+    full = url.rstrip("/") + page
     
     try:
         import urllib3; urllib3.disable_warnings()
-        r = req_lib.get(url.rstrip("/")+page, headers=hdrs,
+        r = req_lib.get(full, headers=hdrs,
                        proxies={"http": px, "https": px}, timeout=12, verify=False)
         if r.status_code == 200 and len(r.text) > 500:
             add_ok(sid)
             with lock:
                 stats["active_visitors"] += 1
             
+            # Simulate real browsing: visit multiple pages
             stay = STAY_TIME + random.randint(-5, 5)
-            time.sleep(max(stay, 10))
+            end_time = time.time() + max(stay, 10)
+            
+            while time.time() < end_time and not stop_event.is_set():
+                time.sleep(random.uniform(3, 7))
+                if time.time() >= end_time: break
+                next_page = random.choice(PAGES)
+                next_full = url.rstrip("/") + next_page
+                try:
+                    hdrs2 = hdrs.copy()
+                    hdrs2["Referer"] = full
+                    req_lib.get(next_full, headers=hdrs2,
+                               proxies={"http": px, "https": px}, timeout=12, verify=False)
+                    full = next_full
+                except:
+                    pass
             
             with lock:
                 stats["active_visitors"] -= 1
