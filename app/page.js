@@ -34,8 +34,14 @@ export default function Home() {
   const [useProxy, setUseProxy] = useState(true);
   const [proxyHost, setProxyHost] = useState('proxy.packetstream.io');
   const [proxyPort, setProxyPort] = useState('31112');
-  const [proxyUser, setProxyUser] = useState('');
-  const [proxyPass, setProxyPass] = useState('');
+  const [proxyUser, setProxyUser] = useState(() => {
+    if (typeof window !== 'undefined') return localStorage.getItem('proxyUser') || '';
+    return '';
+  });
+  const [proxyPass, setProxyPass] = useState(() => {
+    if (typeof window !== 'undefined') return localStorage.getItem('proxyPass') || '';
+    return '';
+  });
   const [monitoring, setMonitoring] = useState(false);
   const [serverStatus, setServerStatus] = useState([]);
   const [attackStartTime, setAttackStartTime] = useState(null);
@@ -64,6 +70,8 @@ export default function Home() {
   // Persist
   useEffect(() => { if (panelApiKey) localStorage.setItem('panelApiKey', panelApiKey); }, [panelApiKey]);
   useEffect(() => { localStorage.setItem('captchaApiKey', captchaApiKey); }, [captchaApiKey]);
+  useEffect(() => { localStorage.setItem('proxyUser', proxyUser); }, [proxyUser]);
+  useEffect(() => { localStorage.setItem('proxyPass', proxyPass); }, [proxyPass]);
   useEffect(() => { localStorage.setItem('captchaService', captchaService); }, [captchaService]);
   useEffect(() => { localStorage.setItem('servers', JSON.stringify(servers)); }, [servers]);
 
@@ -90,8 +98,11 @@ export default function Home() {
   };
 
   useEffect(() => {
-    if (useProxy && proxyHost && proxyPass) checkProxy();
-  }, [useProxy, proxyHost, proxyPass]);
+    if (useProxy && proxyHost && proxyUser && proxyPass) checkProxy();
+  }, []);
+  useEffect(() => {
+    if (useProxy && proxyHost && proxyUser && proxyPass) checkProxy();
+  }, [useProxy, proxyHost, proxyUser, proxyPass]);
 
   // Dynamic calculations
   const ws = parseInt(waveSize) || 200;
