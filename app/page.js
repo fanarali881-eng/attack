@@ -396,6 +396,34 @@ export default function Home() {
           </div>
         </div>
 
+        {/* Proxy - Username & Password (main view) */}
+        <div style={{ marginBottom:'14px', border:'1px solid #166534', borderRadius:'8px', padding:'14px', backgroundColor:'#0a0a0a' }}>
+          <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:'10px' }}>
+            <div style={{ display:'flex', alignItems:'center', gap:'8px' }}>
+              <span style={{ fontSize:'13px', color:'#22c55e' }}>🌐 بروكسي سعودي</span>
+              <button onClick={() => setUseProxy(!useProxy)} style={{ background: useProxy ? '#22c55e' : '#374151', color:'#fff', border:'none', padding:'3px 14px', borderRadius:'12px', cursor:'pointer', fontSize:'11px', fontFamily:ff }}>
+                {useProxy ? '✅ مفعّل' : '❌ معطّل'}
+              </button>
+            </div>
+            {useProxy && proxyStatus === 'active' && <span style={{ background:'#052e16', color:'#4ade80', padding:'4px 12px', borderRadius:'12px', fontSize:'12px', border:'1px solid #22c55e' }}>✅ البروكسي شغال - عندك رصيد</span>}
+            {useProxy && proxyStatus === 'expired' && <span style={{ background:'#450a0a', color:'#fca5a5', padding:'4px 12px', borderRadius:'12px', fontSize:'12px', border:'1px solid #dc2626' }}>❌ الرصيد خلص!</span>}
+            {useProxy && proxyStatus === 'checking' && <span style={{ background:'#1a1a2e', color:'#facc15', padding:'4px 12px', borderRadius:'12px', fontSize:'12px', border:'1px solid #facc15' }}>⏳ يفحص...</span>}
+            {useProxy && proxyStatus === 'error' && <span style={{ background:'#450a0a', color:'#fca5a5', padding:'4px 12px', borderRadius:'12px', fontSize:'12px', border:'1px solid #dc2626' }}>⚠️ خطأ بالفحص</span>}
+          </div>
+          {useProxy && (
+            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'8px' }}>
+              <div>
+                <label style={{ fontSize:'11px', color:'#6b7280', marginBottom:'4px', display:'block' }}>Username</label>
+                <input type="text" value={proxyUser} onChange={(e) => setProxyUser(e.target.value)} placeholder="اسم المستخدم" style={st.input} />
+              </div>
+              <div>
+                <label style={{ fontSize:'11px', color:'#6b7280', marginBottom:'4px', display:'block' }}>Password</label>
+                <input type="text" value={proxyPass} onChange={(e) => setProxyPass(e.target.value)} placeholder="كلمة المرور" style={st.input} />
+              </div>
+            </div>
+          )}
+        </div>
+
         {/* Start / Stop buttons */}
         <div style={{ display:'grid', gridTemplateColumns: phase === 'running' ? '1fr 1fr' : '1fr', gap:'10px', marginBottom:'16px' }}>
           {phase !== 'running' && (
