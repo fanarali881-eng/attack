@@ -141,31 +141,36 @@ export default function Home() {
     return `${m}:${String(s).padStart(2, '0')}`;
   };
 
-  // Countdown
+  // Countdown - simple time-based countdown from the duration the user set
   useEffect(() => {
-    if (attackStartTime && monitoring && serverStatus.length > 0) {
-      const finishedServers = serverStatus.filter(s => s.status === 'finished');
-      const totalDone = serverStatus.reduce((sum, s) => sum + (s.visits || 0), 0);
-      const totalTarget = serverStatus.reduce((sum, s) => sum + (s.target || 0), 0);
-      const maxElapsed = Math.max(...serverStatus.map(s => s.elapsed || 0), 1);
-      if (totalDone > 0 && totalTarget > 0) {
-        const realSpeed = totalDone / maxElapsed;
-        const remaining = totalTarget - totalDone;
-        if (realSpeed > 0) setRemainingSeconds(Math.ceil(remaining / realSpeed));
-      }
-      const activeServers = serverStatus.filter(s => s.status === 'running' || s.status === 'starting');
-      if (activeServers.length === 0 && finishedServers.length > 0) { setRemainingSeconds(0); setPhase('finished'); }
-    }
-  }, [serverStatus, attackStartTime, monitoring]);
-
-  useEffect(() => {
-    if (remainingSeconds !== null && remainingSeconds > 0 && monitoring) {
-      countdownRef.current = setInterval(() => {
-        setRemainingSeconds(prev => prev !== null && prev > 0 ? prev - 1 : 0);
-      }, 1000);
+    if (attackStartTime && monitoring) {
+      // Calculate remaining based on real elapsed time since attack started
+      const totalDurationMs = parseInt(durationMin) * 60 * 1000;
+      const updateCountdown = () => {
+        const elapsed = Date.now() - attackStartTime;
+        const remaining = Math.max(0, Math.ceil((totalDurationMs - elapsed) / 1000));
+        setRemainingSeconds(remaining);
+        if (remaining <= 0) {
+          setPhase('finished');
+        }
+      };
+      updateCountdown();
+      countdownRef.current = setInterval(updateCountdown, 1000);
       return () => clearInterval(countdownRef.current);
     }
-  }, [remainingSeconds, monitoring]);
+  }, [attackStartTime, monitoring, durationMin]);
+
+  // Check if all servers finished
+  useEffect(() => {
+    if (attackStartTime && monitoring && serverStatus.length > 0) {
+      const activeServers = serverStatus.filter(s => s.status === 'running' || s.status === 'starting');
+      const finishedServers = serverStatus.filter(s => s.status === 'finished');
+      if (activeServers.length === 0 && finishedServers.length > 0) {
+        setRemainingSeconds(0);
+        setPhase('finished');
+      }
+    }
+  }, [serverStatus, attackStartTime, monitoring]);
 
   // Fetch status
   const fetchStatus = async () => {
