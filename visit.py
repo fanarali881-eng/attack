@@ -359,7 +359,7 @@ def discover_pages(url, base):
 
 # ============ MODE A: SOCKET.IO ============
 def visitor_socketio(site_info, vid):
-    """Connect via Socket.IO - fastest, visitor appears as ACTIVE."""
+    """Connect via Socket.IO through unique Saudi proxy - each visitor has different real IP."""
     try:
         import socketio as sio_lib
     except ImportError:
@@ -369,7 +369,19 @@ def visitor_socketio(site_info, vid):
     fp = gen_fingerprint()
     fp["page"] = random.choice(site_info["pages"]) if site_info["pages"] else "/"
     
-    sio = sio_lib.Client(reconnection=False)
+    # Build unique proxy for this visitor (each gets different session = different IP)
+    proxy_url = get_proxy_url()  # Each call generates unique session ID
+    http_session = None
+    if proxy_url:
+        http_session = requests.Session()
+        http_session.proxies = {"http": proxy_url, "https": proxy_url}
+    
+    # Configure Socket.IO with proxy
+    sio = sio_lib.Client(
+        reconnection=False,
+        http_session=http_session,
+        request_timeout=15,
+    )
     connected = threading.Event()
     
     @sio.event
@@ -385,6 +397,10 @@ def visitor_socketio(site_info, vid):
     def catch_all(event, data):
         pass
     
+    @sio.event
+    def disconnect():
+        pass
+    
     try:
         socket_url = site_info["socket_url"]
         sio.connect(socket_url, transports=['websocket','polling'], wait_timeout=15)
@@ -393,6 +409,8 @@ def visitor_socketio(site_info, vid):
             with lock:
                 stats["failed"] += 1
             log_progress()
+            try: sio.disconnect()
+            except: pass
             return False
         
         with lock:
