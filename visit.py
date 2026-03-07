@@ -1260,6 +1260,19 @@ def visitor_socketio(site_info, vid):
         http_session = requests.Session()
         http_session.proxies = {"http": proxy_url, "https": proxy_url}
     
+    # If socket server is behind Cloudflare, pass CF cookies to the session
+    if cf_cookie_cache["valid"] and cf_cookie_cache["cookies"]:
+        if http_session is None:
+            http_session = requests.Session()
+        http_session.cookies.update(cf_cookie_cache["cookies"])
+        if cf_cookie_cache["user_agent"]:
+            http_session.headers["User-Agent"] = cf_cookie_cache["user_agent"]
+    
+    # Set browser-like headers for Socket.IO
+    if http_session:
+        http_session.headers.setdefault("Origin", site_info.get("base_url", ""))
+        http_session.headers.setdefault("Referer", site_info.get("base_url", "") + "/")
+    
     sio = sio_lib.Client(reconnection=False, http_session=http_session, request_timeout=60)
     connected = threading.Event()
     registered = threading.Event()
@@ -1613,6 +1626,22 @@ def run(url, duration_min, manual_socket=None):
     if site_info["mode"] == "cloudflare":
         if not cf_cookie_cache["valid"]:
             init_cf_cookies(url)
+    
+    # For socketio mode: check if socket server is behind Cloudflare and get cookies
+    if site_info["mode"] == "socketio" and site_info.get("socket_url"):
+        socket_host = site_info["socket_url"]
+        try:
+            test_r = requests.get(socket_host + "/socket.io/?EIO=4&transport=polling", timeout=10)
+            if test_r.status_code == 403 and 'cloudflare' in test_r.text.lower():
+                print(f"[WARN] Socket server {socket_host} is behind Cloudflare WAF, solving...", flush=True)
+                if not cf_cookie_cache["valid"]:
+                    init_cf_cookies(socket_host)
+                if cf_cookie_cache["valid"]:
+                    print(f"[OK] Got CF cookies for socket server", flush=True)
+                else:
+                    print(f"[WARN] Could not get CF cookies for socket server", flush=True)
+        except:
+            pass
     
     # For socketio with proxy, use more frequent smaller waves
     if site_info['mode'] == 'socketio' and PROXY_USER:
