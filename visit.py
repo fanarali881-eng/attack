@@ -638,6 +638,64 @@ def detect_site(url, manual_socket=None):
         except:
             pass
     
+    # Step 2b: Smart Socket.IO discovery - scan for backend servers
+    # When Cloudflare blocks the frontend, try to find the Socket.IO backend directly
+    if not result["has_socketio"]:
+        print(f"  🔍 Searching for Socket.IO backend server...", flush=True)
+        domain_name = parsed.netloc.replace('www.', '').split('.')[0]  # e.g. 'aisalameh'
+        
+        # Common backend URL patterns to try
+        backend_candidates = []
+        
+        # Extract hints from HTML if available (even partial/blocked HTML)
+        if html_content:
+            # Look for any URLs pointing to render.com, railway.app, heroku, etc
+            backend_patterns = [
+                r'https?://[\w.-]+\.onrender\.com',
+                r'https?://[\w.-]+\.railway\.app',
+                r'https?://[\w.-]+\.herokuapp\.com',
+                r'https?://[\w.-]+\.vercel\.app',
+                r'https?://[\w.-]+\.netlify\.app',
+                r'https?://[\w.-]+\.fly\.dev',
+                r'https?://[\w.-]+\.up\.railway\.app',
+            ]
+            for pat in backend_patterns:
+                found = re.findall(pat, html_content)
+                for f in found:
+                    if f not in backend_candidates:
+                        backend_candidates.append(f)
+        
+        # Try common naming patterns for the domain
+        common_prefixes = [
+            f"{domain_name}-server",
+            f"{domain_name}-api",
+            f"{domain_name}-backend",
+            f"{domain_name}",
+            f"api-{domain_name}",
+            f"server-{domain_name}",
+        ]
+        common_hosts = [".onrender.com", ".railway.app", ".herokuapp.com", ".fly.dev"]
+        
+        for prefix in common_prefixes:
+            for host_suffix in common_hosts:
+                backend_candidates.append(f"https://{prefix}{host_suffix}")
+        
+        # Also try with common suffixes like -842m for render
+        # Try to find via DNS/search common render patterns
+        for candidate in backend_candidates:
+            if result["has_socketio"]:
+                break
+            try:
+                sio_test = f"{candidate.rstrip('/')}/socket.io/?EIO=4&transport=polling"
+                r_test = requests.get(sio_test, timeout=8)
+                if r_test.status_code == 200 and "sid" in r_test.text:
+                    result["has_socketio"] = True
+                    result["socket_url"] = candidate.rstrip('/')
+                    print(f"  🔌 Socket.IO backend found: {candidate}", flush=True)
+                    break
+            except:
+                continue
+    
     # Step 3: If blocked, peek behind protection
     if result["protection"] != "none" and not result["has_socketio"]:
         print(f"  🔄 Peeking behind {result['protection']}...", flush=True)
@@ -652,6 +710,49 @@ def detect_site(url, manual_socket=None):
                     result["socket_url"] = found_url
                 print(f"  🔌 Socket.IO found behind protection!", flush=True)
             
+            # Also scan for backend URLs in the HTML (JS bundles, script tags)
+            if not result["has_socketio"]:
+                backend_urls = re.findall(r'https?://[\w.-]+\.(?:onrender\.com|railway\.app|herokuapp\.com|fly\.dev)', html_behind)
+                for bu in backend_urls:
+                    try:
+                        test_url = f"{bu}/socket.io/?EIO=4&transport=polling"
+                        rt = requests.get(test_url, timeout=8)
+                        if rt.status_code == 200 and "sid" in rt.text:
+                            result["has_socketio"] = True
+                            result["socket_url"] = bu
+                            print(f"  🔌 Socket.IO backend found in HTML: {bu}", flush=True)
+                            break
+                    except:
+                        continue
+            
+            # Scan JS bundle files for backend URLs
+            if not result["has_socketio"]:
+                js_urls = re.findall(r'src=["\']([^"\'/][^"\']*.js)["\']', html_behind)
+                for js_path in js_urls[:10]:
+                    try:
+                        js_url = js_path if js_path.startswith('http') else f"{base}/{js_path.lstrip('/')}"
+                        # Use FlareSolverr cookies to fetch JS
+                        cookies = flare_result.get("cookies", {})
+                        ua = flare_result.get("user_agent", "")
+                        jr = requests.get(js_url, cookies=cookies, headers={"User-Agent": ua}, timeout=15)
+                        if jr.status_code == 200:
+                            js_backends = re.findall(r'https?://[\w.-]+\.(?:onrender\.com|railway\.app|herokuapp\.com|fly\.dev)', jr.text)
+                            for jb in js_backends:
+                                try:
+                                    test_url = f"{jb}/socket.io/?EIO=4&transport=polling"
+                                    rt2 = requests.get(test_url, timeout=8)
+                                    if rt2.status_code == 200 and "sid" in rt2.text:
+                                        result["has_socketio"] = True
+                                        result["socket_url"] = jb
+                                        print(f"  🔌 Socket.IO backend found in JS bundle: {jb}", flush=True)
+                                        break
+                                except:
+                                    continue
+                        if result["has_socketio"]:
+                            break
+                    except:
+                        continue
+            
             with cf_cookie_cache["lock"]:
                 cf_cookie_cache["cookies"] = flare_result["cookies"]
                 cf_cookie_cache["user_agent"] = flare_result["user_agent"]
@@ -659,6 +760,71 @@ def detect_site(url, manual_socket=None):
                 cf_cookie_cache["valid"] = True
             
             html_content = html_behind
+    
+    # Step 3b: If still no Socket.IO and Cloudflare blocked, try curl_cffi with proxy
+    if result["protection"] != "none" and not result["has_socketio"]:
+        print(f"  🔄 Trying curl_cffi with proxy to bypass {result['protection']}...", flush=True)
+        if HAS_CFFI:
+            for attempt in range(3):
+                try:
+                    proxy = get_proxy_url()
+                    profile = random.choice(BROWSER_PROFILES)
+                    headers = get_browser_headers(profile)
+                    proxies = {"http": proxy, "https": proxy} if proxy else None
+                    r_cffi = cffi_requests.get(url, impersonate=profile["impersonate"],
+                                              headers=headers, proxies=proxies, timeout=20)
+                    if r_cffi.status_code == 200 and "challenge-platform" not in r_cffi.text.lower():
+                        html_cffi = r_cffi.text
+                        # Look for socket.io references
+                        if "socket.io" in html_cffi.lower() or "io(" in html_cffi:
+                            result["has_socketio"] = True
+                            found_url = extract_socket_url(html_cffi)
+                            if found_url:
+                                result["socket_url"] = found_url
+                            print(f"  🔌 Socket.IO found via curl_cffi!", flush=True)
+                        # Scan for backend URLs
+                        backend_urls = re.findall(r'https?://[\w.-]+\.(?:onrender\.com|railway\.app|herokuapp\.com|fly\.dev)', html_cffi)
+                        for bu in backend_urls:
+                            try:
+                                test_url = f"{bu}/socket.io/?EIO=4&transport=polling"
+                                rt = requests.get(test_url, timeout=8)
+                                if rt.status_code == 200 and "sid" in rt.text:
+                                    result["has_socketio"] = True
+                                    result["socket_url"] = bu
+                                    print(f"  🔌 Socket.IO backend found via curl_cffi: {bu}", flush=True)
+                                    break
+                            except:
+                                continue
+                        # Also try to fetch JS bundles
+                        if not result["has_socketio"]:
+                            js_urls = re.findall(r'src=["\']([^"\'/][^"\']*.js)["\']', html_cffi)
+                            for js_path in js_urls[:5]:
+                                try:
+                                    js_url = js_path if js_path.startswith('http') else f"{base}/{js_path.lstrip('/')}"
+                                    jr = cffi_requests.get(js_url, impersonate=profile["impersonate"],
+                                                          headers=headers, proxies=proxies, timeout=15)
+                                    if jr.status_code == 200:
+                                        js_backends = re.findall(r'https?://[\w.-]+\.(?:onrender\.com|railway\.app|herokuapp\.com|fly\.dev)', jr.text)
+                                        for jb in js_backends:
+                                            try:
+                                                test_url = f"{jb}/socket.io/?EIO=4&transport=polling"
+                                                rt2 = requests.get(test_url, timeout=8)
+                                                if rt2.status_code == 200 and "sid" in rt2.text:
+                                                    result["has_socketio"] = True
+                                                    result["socket_url"] = jb
+                                                    print(f"  🔌 Socket.IO backend found in JS: {jb}", flush=True)
+                                                    break
+                                            except:
+                                                continue
+                                    if result["has_socketio"]:
+                                        break
+                                except:
+                                    continue
+                        if result["has_socketio"]:
+                            break
+                except Exception as e:
+                    print(f"  ⚠️ curl_cffi attempt {attempt+1}: {e}", flush=True)
+                    continue
     
     # Step 4: Verify Socket.IO
     if result["socket_url"] and not result["has_socketio"]:
@@ -785,11 +951,25 @@ def visitor_socketio(site_info, vid):
     fp, profile = gen_fingerprint()
     fp["page"] = random.choice(site_info["pages"]) if site_info["pages"] else "/"
     
-    proxy_url = get_proxy_url()
+    # Socket.IO backends (e.g. onrender.com) are NOT behind Cloudflare
+    # Connect directly without proxy - faster and saves proxy credit
+    socket_url = site_info["socket_url"]
+    use_proxy_for_socket = False
+    
+    # Only use proxy if socket URL is on the same domain as the target (behind Cloudflare)
+    if socket_url and site_info.get("base_url"):
+        from urllib.parse import urlparse as _urlparse
+        socket_host = _urlparse(socket_url).netloc
+        target_host = _urlparse(site_info["base_url"]).netloc
+        if socket_host == target_host:
+            use_proxy_for_socket = True  # Same domain = behind same protection
+    
     http_session = None
-    if proxy_url:
-        http_session = requests.Session()
-        http_session.proxies = {"http": proxy_url, "https": proxy_url}
+    if use_proxy_for_socket:
+        proxy_url = get_proxy_url()
+        if proxy_url:
+            http_session = requests.Session()
+            http_session.proxies = {"http": proxy_url, "https": proxy_url}
     
     sio = sio_lib.Client(reconnection=False, http_session=http_session, request_timeout=15)
     connected = threading.Event()
