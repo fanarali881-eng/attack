@@ -42,6 +42,14 @@ export default function Home() {
   const [scanResult, setScanResult] = useState(null);
   const [scanning, setScanning] = useState(false);
   const [socketUrl, setSocketUrl] = useState('');
+  const [captchaApiKey, setCaptchaApiKey] = useState(() => {
+    if (typeof window !== 'undefined') return localStorage.getItem('captchaApiKey') || '';
+    return '';
+  });
+  const [captchaService, setCaptchaService] = useState(() => {
+    if (typeof window !== 'undefined') return localStorage.getItem('captchaService') || '2captcha';
+    return '2captcha';
+  });
   const [proxyStatus, setProxyStatus] = useState(null);
   const intervalRef = useRef(null);
   const countdownRef = useRef(null);
@@ -52,6 +60,8 @@ export default function Home() {
 
   // Persist
   useEffect(() => { if (panelApiKey) localStorage.setItem('panelApiKey', panelApiKey); }, [panelApiKey]);
+  useEffect(() => { localStorage.setItem('captchaApiKey', captchaApiKey); }, [captchaApiKey]);
+  useEffect(() => { localStorage.setItem('captchaService', captchaService); }, [captchaService]);
   useEffect(() => { localStorage.setItem('servers', JSON.stringify(servers)); }, [servers]);
 
   const addLog = (msg) => setLogs(prev => [`[${new Date().toLocaleTimeString()}] ${msg}`, ...prev]);
@@ -226,7 +236,7 @@ export default function Home() {
       const res = await fetch('/api/control', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-api-key': panelApiKey },
-        body: JSON.stringify({ action, url, durationMin: parseInt(durationMin), waveSize: parseInt(waveSize), stayTime: parseInt(stayTime), servers, proxies: buildProxyList(), socketUrl: socketUrl || undefined })
+        body: JSON.stringify({ action, url, durationMin: parseInt(durationMin), waveSize: parseInt(waveSize), stayTime: parseInt(stayTime), servers, proxies: buildProxyList(), socketUrl: socketUrl || undefined, captchaApiKey: captchaApiKey || undefined, captchaService: captchaService || undefined })
       });
       const data = await res.json();
       if (data.error) {
@@ -273,7 +283,7 @@ export default function Home() {
   return (
     <div style={s.page}>
       <div style={s.box}>
-        <h1 style={s.title}>⚔️ لوحة تحكم الهجوم v10</h1>
+        <h1 style={s.title}>⚔️ لوحة تحكم الهجوم v12</h1>
 
         {/* API Key */}
         <div style={{ marginBottom:'14px' }}>
@@ -348,6 +358,20 @@ export default function Home() {
           {socketUrl && <div style={{ marginTop:'4px', fontSize:'10px', color:'#06b6d4' }}>🔌 سيتم استخدام Socket.IO مباشرة على: {socketUrl}</div>}
         </div>
 
+        {/* CAPTCHA Solver */}
+        <div style={{ marginBottom:'12px' }}>
+          <label style={{...s.label, color:'#f59e0b'}}>🔑 CAPTCHA Solver (اختياري - لتجاوز Turnstile/reCAPTCHA/hCaptcha)</label>
+          <div style={{ display:'grid', gridTemplateColumns:'2fr 1fr', gap:'8px' }}>
+            <input type="text" value={captchaApiKey} onChange={(e) => setCaptchaApiKey(e.target.value)} placeholder="API Key من 2Captcha أو CapSolver" style={{...s.input, borderColor: captchaApiKey ? '#f59e0b' : '#166534'}} />
+            <select value={captchaService} onChange={(e) => setCaptchaService(e.target.value)} style={{...s.input, borderColor:'#f59e0b'}}>
+              <option value="2captcha">2Captcha</option>
+              <option value="capsolver">CapSolver</option>
+            </select>
+          </div>
+          {captchaApiKey && <div style={{ marginTop:'4px', fontSize:'10px', color:'#f59e0b' }}>🔑 سيتم حل CAPTCHA تلقائياً عبر {captchaService}</div>}
+          {!captchaApiKey && <div style={{ marginTop:'4px', fontSize:'10px', color:'#6b7280' }}>بدون مفتاح = يتجاوز بـ TLS spoofing فقط (يشتغل مع أغلب المواقع)</div>}
+        </div>
+
         {/* Scan Result */}
         {scanResult && (
           <div style={{ border:'1px solid #7c3aed', borderRadius:'8px', padding:'14px', marginBottom:'14px', backgroundColor:'#1a1033' }}>
@@ -374,9 +398,15 @@ export default function Home() {
                 ⚡ وضع Socket.IO - أسرع وضع! الزوار يظهرون كـ "نشطين" مباشرة بدون Cloudflare bypass
               </div>
             )}
+            {scanResult.protection && scanResult.protection !== 'none' && (
+              <div style={{ marginTop:'8px', fontSize:'11px', color:'#f97316' }}>🛡️ حماية: {scanResult.protection.toUpperCase()}</div>
+            )}
+            {scanResult.captcha_type && (
+              <div style={{ marginTop:'4px', fontSize:'11px', color:'#f59e0b' }}>🔑 CAPTCHA: {scanResult.captcha_type} {captchaApiKey ? '(سيتم حله تلقائياً)' : '(أضف مفتاح CAPTCHA لتجاوزه)'}</div>
+            )}
             {scanResult.mode === 'cloudflare' && (
               <div style={{ marginTop:'6px', fontSize:'11px', color:'#fbbf24', backgroundColor:'#451a03', padding:'6px 10px', borderRadius:'6px' }}>
-                ☁️ وضع Cloudflare - يحتاج FlareSolverr (تأكد من تجهيز السيرفرات أولاً)
+                ☁️ وضع الحماية المتقدمة - TLS spoofing + {captchaApiKey ? 'CAPTCHA solver' : 'FlareSolverr'}
               </div>
             )}
             {scanResult.mode === 'http' && (

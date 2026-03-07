@@ -13,14 +13,14 @@ const DEFAULT_SERVERS = [
   { host: '206.189.21.125', username: 'root' }
 ];
 
-// v10 Setup: install python-socketio + websocket-client + requests (no more FlareSolverr for socketio mode)
+// v12 Setup: install curl_cffi + python-socketio + websocket-client + requests + FlareSolverr
 const SETUP_COMMAND = `export DEBIAN_FRONTEND=noninteractive && \\
-pip3 install 'python-socketio[client]' websocket-client requests --break-system-packages -q 2>/dev/null; \\
-pip3 install 'python-socketio[client]' websocket-client requests -q 2>/dev/null; \\
+pip3 install curl_cffi 'python-socketio[client]' websocket-client requests --break-system-packages -q 2>/dev/null; \\
+pip3 install curl_cffi 'python-socketio[client]' websocket-client requests -q 2>/dev/null; \\
 (which docker > /dev/null 2>&1 || (curl -fsSL https://get.docker.com | sh)) && \\
 docker pull ghcr.io/flaresolverr/flaresolverr:latest 2>/dev/null && \\
 for i in $(seq 1 20); do n=flaresolverr$i; p=$((8190+i)); docker rm -f $n 2>/dev/null; docker run -d --name $n --restart=always -p $p:8191 -e LOG_LEVEL=info --memory=256m ghcr.io/flaresolverr/flaresolverr:latest; done 2>/dev/null; \\
-echo SETUP_COMPLETE_V10`;
+echo SETUP_COMPLETE_V12`;
 
 function sanitizeUrl(url) {
   if (!url || typeof url !== 'string') return null;
@@ -98,7 +98,7 @@ export async function POST(req) {
   }
 
   try {
-    const { action, url, durationMin, servers, proxies, waveSize, stayTime, socketUrl } = await req.json();
+    const { action, url, durationMin, servers, proxies, waveSize, stayTime, socketUrl, captchaApiKey, captchaService } = await req.json();
     const serverList = (servers && servers.length > 0) ? servers : DEFAULT_SERVERS;
 
     if (action === 'setup') {
@@ -125,7 +125,7 @@ export async function POST(req) {
       
       const results = await Promise.all(
         serverList.map(async (server) => {
-          const deployCmd = `echo "${scriptB64}" | base64 -d > /root/visit.py && wc -c /root/visit.py && echo "Script v10 deployed"`;
+          const deployCmd = `echo "${scriptB64}" | base64 -d > /root/visit.py && wc -c /root/visit.py && echo "Script v12 deployed"`;
           const r = await runSSHCommand(server, deployCmd, 15000);
           return { host: server.host, ...r };
         })
@@ -154,10 +154,12 @@ export async function POST(req) {
             `for i in $(seq 1 20); do docker start flaresolverr$i 2>/dev/null; done; ` +
             `${proxyEnv} WAVE_SIZE=${safeWaveSize} STAY_TIME=${safeStayTime} ` +
             (socketUrl ? `SOCKET_URL='${socketUrl.replace(/'/g, '')}' ` : '') +
+            (captchaApiKey ? `CAPTCHA_API_KEY='${captchaApiKey.replace(/'/g, '')}' ` : '') +
+            (captchaService ? `CAPTCHA_SERVICE='${captchaService.replace(/'/g, '')}' ` : '') +
             `nohup python3 /root/visit.py '${escapedUrl}' ${safeDuration}` +
             (socketUrl ? ` '${socketUrl.replace(/'/g, '')}'` : '') +
             ` > /root/visit.log 2>&1 & ` +
-            `echo "Started v10 - ${safeDuration}min WAVE=${safeWaveSize} STAY=${safeStayTime}s"`;
+            `echo "Started v12 - ${safeDuration}min WAVE=${safeWaveSize} STAY=${safeStayTime}s"`;
           
           const r = await runSSHCommand(server, fullCmd, 15000);
           return { host: server.host, ...r };
