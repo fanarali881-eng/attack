@@ -1366,8 +1366,14 @@ def visitor_socketio(site_info, vid):
                         )
                     if reg_r.status_code in [200, 201]:
                         reg_data = reg_r.json()
+                        # Verify the IP is actually Saudi
+                        materials = reg_data.get("materials", {})
+                        ip_country = materials.get("country", "")
+                        if ip_country and ip_country != "SA":
+                            # Not Saudi IP, try another proxy session
+                            continue
                         visitor_jwt = reg_data.get("token")
-                        # Lock in the successful proxy for Socket.IO too
+                        # Lock in the successful Saudi proxy for Socket.IO too
                         proxy_url = attempt_proxy
                         if proxy_url and http_session:
                             http_session.proxies = {"http": proxy_url, "https": proxy_url}
