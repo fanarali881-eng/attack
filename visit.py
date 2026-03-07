@@ -550,21 +550,29 @@ def detect_site(url, manual_socket=None):
     
     print(f"\n🔍 Scanning {url}...", flush=True)
     
-    # Manual socket URL
+    # Manual socket URL - VERIFY it's a real Socket.IO server first
     if manual_socket:
         print(f"  🔌 Manual Socket URL: {manual_socket}", flush=True)
-        result["socket_url"] = manual_socket
-        result["has_socketio"] = True
-        result["mode"] = "socketio"
-        result["pages"] = discover_pages(url, base)
+        is_real_socket = False
         try:
-            sio_url = f"{manual_socket}/socket.io/?EIO=4&transport=polling"
+            sio_url = f"{manual_socket.rstrip('/')}/socket.io/?EIO=4&transport=polling"
             r = requests.get(sio_url, timeout=10)
             if r.status_code == 200 and '"sid"' in r.text and '<html' not in r.text.lower()[:200]:
-                print(f"  ✅ Socket.IO verified", flush=True)
-        except:
-            pass
-        return result
+                is_real_socket = True
+                print(f"  ✅ Socket.IO verified at {manual_socket}", flush=True)
+            else:
+                print(f"  ❌ NOT a real Socket.IO server (status={r.status_code}, has_sid={'"sid"' in r.text})", flush=True)
+        except Exception as e:
+            print(f"  ❌ Socket.IO check failed: {e}", flush=True)
+        
+        if is_real_socket:
+            result["socket_url"] = manual_socket
+            result["has_socketio"] = True
+            result["mode"] = "socketio"
+            result["pages"] = discover_pages(url, base)
+            return result
+        else:
+            print(f"  ⚠️ Ignoring manual socket URL, falling through to auto-detection...", flush=True)
     
     # Step 1: Probe with TLS fingerprint
     html_content = ""
