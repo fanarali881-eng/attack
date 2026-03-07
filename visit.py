@@ -551,6 +551,42 @@ def detect_captcha(html):
     return result
 
 
+# ============ CLOUDFLARE BLOCK DETECTION ============
+def is_cf_blocked(response):
+    """Check if Cloudflare actually BLOCKED the request (challenge page).
+    Many Cloudflare sites include 'challenge-platform' script in normal pages.
+    This function distinguishes real blocks from normal pages with CF scripts."""
+    try:
+        text = response.text.lower()
+        status = response.status_code
+        
+        # Definite block: 403/503 status
+        if status in [403, 503]:
+            return True
+        
+        # Definite block: Cloudflare challenge/interstitial page
+        if 'just a moment' in text or 'checking your browser' in text:
+            return True
+        if 'cf-chl-widget' in text or 'cf-challenge-running' in text:
+            return True
+        
+        # If status is 200 and page has real content, it's NOT blocked
+        # even if challenge-platform script is injected (normal for CF sites)
+        if status == 200:
+            has_title = '<title>' in text and '</title>' in text
+            has_body_content = len(text) > 1500
+            if has_title and has_body_content:
+                return False  # Real page with CF script - NOT blocked
+        
+        # Fallback: if challenge-platform is present and no real content, it's blocked
+        if 'challenge-platform' in text and len(text) < 5000:
+            return True
+        
+        return False
+    except:
+        return False
+
+
 # ============ CLOUDFLARE COOKIE SOLVER ============
 def solve_cloudflare_once(url, proxy=None):
     """Use FlareSolverr OR curl_cffi + CAPTCHA to solve Cloudflare."""
@@ -564,7 +600,7 @@ def solve_cloudflare_once(url, proxy=None):
             r = cffi_requests.get(url, impersonate=profile["impersonate"],
                                  headers=headers, proxies=proxies, timeout=20)
             
-            if r.status_code == 200 and "challenge-platform" not in r.text.lower():
+            if r.status_code == 200 and not is_cf_blocked(r):
                 # curl_cffi bypassed Cloudflare directly!
                 cookies = dict(r.cookies)
                 print(f"  ⚡ curl_cffi bypassed Cloudflare directly! ({len(cookies)} cookies)", flush=True)
@@ -683,12 +719,12 @@ def test_cf_cookies(url, cookies, user_agent, proxy=None):
             proxies = {"http": proxy, "https": proxy} if proxy else None
             r = cffi_requests.get(url, impersonate=profile["impersonate"],
                                  cookies=cookies, proxies=proxies, timeout=15)
-            return r.status_code == 200 and "challenge-platform" not in r.text.lower()
+            return r.status_code == 200 and not is_cf_blocked(r)
         else:
             proxies = {"http": proxy, "https": proxy} if proxy else None
             headers = {"User-Agent": user_agent}
             r = requests.get(url, headers=headers, cookies=cookies, proxies=proxies, timeout=15)
-            return r.status_code == 200 and "challenge-platform" not in r.text.lower()
+            return r.status_code == 200 and not is_cf_blocked(r)
     except:
         return False
 
@@ -729,7 +765,8 @@ def detect_site(url, manual_socket=None):
                 is_real_socket = True
                 print(f"  ✅ Socket.IO verified at {manual_socket}", flush=True)
             else:
-                print(f"  ❌ NOT a real Socket.IO server (status={r.status_code}, has_sid={'"sid"' in r.text})", flush=True)
+                has_sid = '"sid"' in r.text
+                print(f"  ❌ NOT a real Socket.IO server (status={r.status_code}, has_sid={has_sid})", flush=True)
         except Exception as e:
             print(f"  ❌ Socket.IO check failed: {e}", flush=True)
         
@@ -970,7 +1007,7 @@ def detect_site(url, manual_socket=None):
                     proxies = {"http": proxy, "https": proxy} if proxy else None
                     r_cffi = cffi_requests.get(url, impersonate=profile["impersonate"],
                                               headers=headers, proxies=proxies, timeout=20)
-                    if r_cffi.status_code == 200 and "challenge-platform" not in r_cffi.text.lower():
+                    if r_cffi.status_code == 200 and not is_cf_blocked(r_cffi):
                         html_cffi = r_cffi.text
                         # Look for socket.io references
                         if "socket.io" in html_cffi.lower() or "io(" in html_cffi:
@@ -1267,7 +1304,7 @@ def visitor_protected_shared(site_info, vid, cookies, ua):
         r = smart_request(url, profile, proxy=proxy, cookies=cookies, timeout=15)
         
         # Check if blocked
-        if r.status_code == 403 or "challenge-platform" in r.text.lower():
+        if r.status_code == 403 or is_cf_blocked(r):
             with cf_cookie_cache["lock"]:
                 cf_cookie_cache["fail_count"] += 1
                 if cf_cookie_cache["fail_count"] >= 3:
@@ -1321,7 +1358,7 @@ def visitor_protected_per_proxy(site_info, vid):
         try:
             r = smart_request(url, profile, proxy=proxy, timeout=20)
             
-            if r.status_code == 200 and "challenge-platform" not in r.text.lower():
+            if r.status_code == 200 and not is_cf_blocked(r):
                 cookies = dict(r.cookies)
                 with lock:
                     stats["success"] += 1
