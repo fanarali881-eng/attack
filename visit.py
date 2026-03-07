@@ -1724,8 +1724,10 @@ def run(url, duration_min, manual_socket=None):
         if not cf_cookie_cache["valid"]:
             init_cf_cookies(url)
     
-    # For socketio mode: check if socket server is behind Cloudflare and get cookies
-    if site_info["mode"] == "socketio" and site_info.get("socket_url"):
+    # For socketio mode: skip Cloudflare check when proxy is available
+    # The proxy + curl_cffi combination bypasses Cloudflare during registration
+    # Socket.IO websocket transport also bypasses Cloudflare WAF
+    if site_info["mode"] == "socketio" and site_info.get("socket_url") and not PROXY_USER:
         socket_host = site_info["socket_url"]
         try:
             test_r = requests.get(socket_host + "/socket.io/?EIO=4&transport=polling", timeout=10)
@@ -1739,6 +1741,8 @@ def run(url, duration_min, manual_socket=None):
                     print(f"[WARN] Could not get CF cookies for socket server", flush=True)
         except:
             pass
+    elif site_info["mode"] == "socketio" and PROXY_USER:
+        print(f"[OK] Socket.IO with proxy - skipping CF check (proxy bypasses CF)", flush=True)
     
     # For socketio with proxy, use more frequent smaller waves
     if site_info['mode'] == 'socketio' and PROXY_USER:
