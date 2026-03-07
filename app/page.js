@@ -637,6 +637,94 @@ export default function Home() {
                 )}
               </div>
             )}
+
+            {/* ===== DETAILED REPORT (appears when finished) ===== */}
+            {phase === 'finished' && serverStatus.length > 0 && (() => {
+              const finishedServers = serverStatus.filter(s => s.status === 'finished');
+              if (finishedServers.length === 0) return null;
+              const totalVisitsReport = finishedServers.reduce((sum, s) => sum + (s.visits || 0), 0);
+              const totalErrorsReport = finishedServers.reduce((sum, s) => sum + (s.errors || 0), 0);
+              const totalTargetReport = finishedServers.reduce((sum, s) => sum + (s.target || 0), 0);
+              const totalUniqueIPs = finishedServers.reduce((sum, s) => sum + (s.unique_ips || 0), 0);
+              const maxElapsedReport = Math.max(...finishedServers.map(s => s.elapsed || 0), 0);
+              const overallRate = maxElapsedReport > 0 ? Math.round((totalVisitsReport / maxElapsedReport) * 60) : 0;
+              const successRate = totalTargetReport > 0 ? ((totalVisitsReport / totalTargetReport) * 100).toFixed(1) : 0;
+              const peakActiveReport = Math.max(...finishedServers.map(s => s.peak_active || 0), 0);
+              return (
+                <div style={{ marginTop:'14px', padding:'16px', backgroundColor:'#0c1222', border:'2px solid #3b82f6', borderRadius:'12px' }}>
+                  <div style={{ fontSize:'16px', color:'#3b82f6', marginBottom:'14px', fontWeight:'bold', textAlign:'center' }}>📊 التقرير المفصل</div>
+                  
+                  {/* Overall Stats Grid */}
+                  <div style={{ display:'grid', gridTemplateColumns:'repeat(4, 1fr)', gap:'8px', marginBottom:'14px' }}>
+                    {[
+                      { v: totalVisitsReport.toLocaleString(), l:'إجمالي الزيارات', c:'#22c55e', icon:'✅' },
+                      { v: totalErrorsReport.toLocaleString(), l:'إجمالي الأخطاء', c: totalErrorsReport > 0 ? '#ef4444' : '#22c55e', icon:'❌' },
+                      { v: `${successRate}%`, l:'نسبة النجاح', c: parseFloat(successRate) > 90 ? '#22c55e' : parseFloat(successRate) > 70 ? '#facc15' : '#ef4444', icon:'📈' },
+                      { v: totalUniqueIPs.toLocaleString(), l:'IPs فريدة', c:'#a855f7', icon:'🌍' },
+                    ].map((x, i) => (
+                      <div key={i} style={{ textAlign:'center', padding:'10px', backgroundColor:'#111827', borderRadius:'8px', border:'1px solid #1f2937' }}>
+                        <div style={{ fontSize:'10px', marginBottom:'4px' }}>{x.icon}</div>
+                        <div style={{ fontSize:'18px', fontWeight:'bold', color:x.c }}>{x.v}</div>
+                        <div style={{ fontSize:'9px', color:'#9ca3af', marginTop:'3px' }}>{x.l}</div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div style={{ display:'grid', gridTemplateColumns:'repeat(4, 1fr)', gap:'8px', marginBottom:'14px' }}>
+                    {[
+                      { v: overallRate.toLocaleString(), l:'زيارة/دقيقة', c:'#06b6d4', icon:'⚡' },
+                      { v: peakActiveReport.toLocaleString(), l:'أعلى نشط', c:'#f97316', icon:'👥' },
+                      { v: formatTime(maxElapsedReport), l:'المدة الإجمالية', c:'#facc15', icon:'⏱️' },
+                      { v: finishedServers.length.toString(), l:'سيرفرات نشطة', c:'#22c55e', icon:'🖥️' },
+                    ].map((x, i) => (
+                      <div key={i} style={{ textAlign:'center', padding:'10px', backgroundColor:'#111827', borderRadius:'8px', border:'1px solid #1f2937' }}>
+                        <div style={{ fontSize:'10px', marginBottom:'4px' }}>{x.icon}</div>
+                        <div style={{ fontSize:'18px', fontWeight:'bold', color:x.c }}>{x.v}</div>
+                        <div style={{ fontSize:'9px', color:'#9ca3af', marginTop:'3px' }}>{x.l}</div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Per-Server Table */}
+                  <div style={{ fontSize:'13px', color:'#3b82f6', marginBottom:'8px', fontWeight:'bold' }}>📋 تفاصيل كل سيرفر</div>
+                  <div style={{ overflowX:'auto' }}>
+                    <table style={{ width:'100%', borderCollapse:'collapse', fontSize:'11px' }}>
+                      <thead>
+                        <tr style={{ backgroundColor:'#1e293b' }}>
+                          {['السيرفر','الوضع','الزيارات','الأخطاء','النجاح','IPs','السرعة','الوقت','أعلى نشط'].map((h, i) => (
+                            <th key={i} style={{ padding:'8px 4px', color:'#9ca3af', borderBottom:'1px solid #374151', textAlign:'center', whiteSpace:'nowrap' }}>{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {finishedServers.map((sv, i) => {
+                          const svSuccess = sv.target > 0 ? ((sv.visits / sv.target) * 100).toFixed(0) : 0;
+                          return (
+                            <tr key={i} style={{ backgroundColor: i % 2 === 0 ? '#0f172a' : '#111827' }}>
+                              <td style={{ padding:'6px 4px', color:'#9ca3af', textAlign:'center', borderBottom:'1px solid #1f2937' }}>{sv.host?.split('.').slice(-2).join('.')}</td>
+                              <td style={{ padding:'6px 4px', textAlign:'center', borderBottom:'1px solid #1f2937' }}><span style={{ color:'#22c55e', fontSize:'10px' }}>{sv.mode || '-'}</span></td>
+                              <td style={{ padding:'6px 4px', color:'#22c55e', textAlign:'center', fontWeight:'bold', borderBottom:'1px solid #1f2937' }}>{(sv.visits||0).toLocaleString()}</td>
+                              <td style={{ padding:'6px 4px', color: (sv.errors||0) > 0 ? '#ef4444' : '#22c55e', textAlign:'center', borderBottom:'1px solid #1f2937' }}>{sv.errors||0}</td>
+                              <td style={{ padding:'6px 4px', color: parseFloat(svSuccess) > 90 ? '#22c55e' : '#facc15', textAlign:'center', borderBottom:'1px solid #1f2937' }}>{svSuccess}%</td>
+                              <td style={{ padding:'6px 4px', color:'#a855f7', textAlign:'center', borderBottom:'1px solid #1f2937' }}>{sv.unique_ips||0}</td>
+                              <td style={{ padding:'6px 4px', color:'#06b6d4', textAlign:'center', borderBottom:'1px solid #1f2937' }}>{sv.rate||0}/م</td>
+                              <td style={{ padding:'6px 4px', color:'#facc15', textAlign:'center', borderBottom:'1px solid #1f2937' }}>{formatTime(sv.elapsed||0)}</td>
+                              <td style={{ padding:'6px 4px', color:'#f97316', textAlign:'center', borderBottom:'1px solid #1f2937' }}>{sv.peak_active||0}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* Target info */}
+                  <div style={{ marginTop:'12px', padding:'8px', backgroundColor:'#111827', borderRadius:'8px', border:'1px solid #1f2937', textAlign:'center' }}>
+                    <div style={{ fontSize:'11px', color:'#6b7280' }}>🎯 الهدف: <span style={{ color:'#06b6d4' }}>{url || '-'}</span></div>
+                    <div style={{ fontSize:'10px', color:'#4b5563', marginTop:'4px' }}>⏰ {new Date().toLocaleString('ar-SA')}</div>
+                  </div>
+                </div>
+              );
+            })()}
           </div>
         )}
 
