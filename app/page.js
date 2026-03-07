@@ -28,6 +28,7 @@ export default function Home() {
     ];
   });
   const [newHost, setNewHost] = useState('');
+  const [showApiKey, setShowApiKey] = useState(false);
   const [newUsername, setNewUsername] = useState('root');
   const [useProxy, setUseProxy] = useState(true);
   const [proxyHost, setProxyHost] = useState('proxy.packetstream.io');
@@ -291,7 +292,10 @@ export default function Home() {
             <label style={{ fontSize:'13px', color:'#ef4444' }}>🔑 مفتاح الدخول</label>
             <span style={{ fontSize:'11px', color: panelApiKey ? '#22c55e' : '#ef4444' }}>{panelApiKey ? '🔒 مُدخل' : '⚠️ مطلوب'}</span>
           </div>
-          <input type="password" value={panelApiKey} onChange={(e) => setPanelApiKey(e.target.value)} placeholder="API Key..." style={{...s.input, borderColor: panelApiKey ? '#22c55e' : '#ef4444'}} />
+          <div style={{ position:'relative' }}>
+            <input type={showApiKey ? 'text' : 'password'} value={panelApiKey} onChange={(e) => setPanelApiKey(e.target.value)} placeholder="API Key..." style={{...s.input, borderColor: panelApiKey ? '#22c55e' : '#ef4444', paddingLeft:'36px'}} />
+            <button onClick={() => setShowApiKey(!showApiKey)} style={{ position:'absolute', left:'8px', top:'50%', transform:'translateY(-50%)', background:'none', border:'none', cursor:'pointer', fontSize:'18px', padding:'0', lineHeight:'1' }}>{showApiKey ? '🙈' : '👁️'}</button>
+          </div>
         </div>
 
         {/* Servers */}
