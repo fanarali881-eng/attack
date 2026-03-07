@@ -1373,8 +1373,8 @@ def visitor_socketio(site_info, vid):
                         # Verify the IP is actually Saudi
                         materials = reg_data.get("materials", {})
                         ip_country = materials.get("country", "")
-                        if ip_country and ip_country != "SA":
-                            # Not Saudi IP, try another proxy session
+                        if ip_country != "SA":
+                            # Not Saudi IP or unknown country, try another proxy session
                             continue
                         visitor_jwt = reg_data.get("token")
                         # Lock in the successful Saudi proxy for Socket.IO too
@@ -1393,24 +1393,23 @@ def visitor_socketio(site_info, vid):
                 log_progress()
                 return False
         
-        # Try websocket first (bypasses Cloudflare WAF), fall back to polling
+        # Connect via websocket (bypasses Cloudflare WAF)
+        # With reconnection=True, the client will auto-reconnect if the first WS drops
         try:
             sio.connect(site_info["socket_url"], auth=auth_dict, transports=['websocket'], wait_timeout=30)
         except:
-            try:
-                sio.connect(site_info["socket_url"], auth=auth_dict, transports=['polling'], wait_timeout=60)
-            except:
-                sio.connect(site_info["socket_url"], auth=auth_dict, wait_timeout=60)  # Let it choose
+            pass  # reconnection will handle it
         
-        if not connected.wait(timeout=30):
+        # Wait for connection (may take a few seconds due to initial drop + reconnect)
+        if not connected.wait(timeout=20):
             with lock: stats["failed"] += 1
             log_progress()
             try: sio.disconnect()
             except: pass
             return False
         
-        # Wait for server to confirm registration (longer timeout for proxy)
-        if not registered.wait(timeout=20):
+        # Wait for server to confirm registration
+        if not registered.wait(timeout=15):
             # Still count as success if connected - registration might be delayed
             pass
         
