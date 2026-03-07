@@ -1380,8 +1380,9 @@ def visitor_socketio(site_info, vid):
                         )
                     if reg_r.status_code == 429:
                         last_fail_reason = "429"
-                        # Rate limited - exponential backoff
-                        time.sleep(random.uniform(2 + _attempt * 2, 4 + _attempt * 3))
+                        # Rate limited - longer exponential backoff to let limit reset
+                        wait = random.uniform(10 + _attempt * 5, 20 + _attempt * 8)
+                        time.sleep(wait)
                         continue
                     if reg_r.status_code == 403:
                         last_fail_reason = "403"
@@ -1702,13 +1703,13 @@ def run_wave(wave_num, site_info):
     delay_between = 0.15
     
     if site_info['mode'] == 'socketio' and PROXY_USER:
-        # Socket.IO through proxy - 15 visitors/wave with 1s delay
-        # 9 servers x 15 visitors = 135 per wave cycle, spread over 15s
-        # With 120s stay time = ~500 active visitors sustained
-        actual_wave_size = min(WAVE_SIZE, 15)  # 15 visitors per wave per server
-        delay_between = 1.0  # 1s between each connection
-        # Random jitter at wave start to desync servers (0-5s)
-        time.sleep(random.uniform(0, 5))
+        # Socket.IO through proxy - 3 visitors/wave with 5s delay to avoid 429
+        # 9 servers x 3 visitors = 27 per wave cycle, spread over 15s
+        # With full-duration stay = visitors accumulate over time
+        actual_wave_size = min(WAVE_SIZE, 3)  # 3 visitors per wave per server
+        delay_between = 5.0  # 5s between each connection to avoid rate limit
+        # Random jitter at wave start to desync servers (0-7s)
+        time.sleep(random.uniform(0, 7))
     
     print(f"\n🌊 Wave {wave_num+1}/{stats['total_waves']} - "
           f"Sending {actual_wave_size} visitors ({site_info['mode']}/{site_info['protection']})...", flush=True)
@@ -1782,9 +1783,11 @@ def run(url, duration_min, manual_socket=None):
     
     # For socketio with proxy, use more frequent smaller waves
     if site_info['mode'] == 'socketio' and PROXY_USER:
-        # 15 visitors every 15s per server, stay 120s = ~500 active across 9 servers
-        total_waves = max(1, duration_min * 4)  # 4 waves per minute
-        WAVE_INTERVAL_ACTUAL = 15  # 15 seconds between waves
+        # 3 visitors every 20s per server = ~9 visitors/min/server
+        # 9 servers x 9/min = 81 new visitors/min, all stay for full duration
+        # After 5 min = ~400+ active visitors with minimal 429 errors
+        total_waves = max(1, duration_min * 3)  # 3 waves per minute
+        WAVE_INTERVAL_ACTUAL = 20  # 20 seconds between waves
     else:
         total_waves = max(1, duration_min * 2)
         WAVE_INTERVAL_ACTUAL = WAVE_INTERVAL
