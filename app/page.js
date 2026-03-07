@@ -294,8 +294,8 @@ export default function Home() {
     addLog(`📊 المدة: ${durationMin} دقيقة | الموجة: ${waveSize} زائر | البقاء: ${stayTime}ث | 👥 ~${activeVisitorsEstimate} نشط`);
 
     try {
-      // Only pass socket URL if scan confirmed it's a real Socket.IO server
-      const effectiveSocketUrl = socketUrl || (detectedScanResult?.mode === 'socketio' && detectedScanResult?.socket_url ? detectedScanResult.socket_url : undefined);
+      // Pass socket URL if user set it manually OR if scan found any socket_url (regardless of mode)
+      const effectiveSocketUrl = socketUrl || (detectedScanResult?.socket_url ? detectedScanResult.socket_url : undefined);
       const res = await fetch('/api/control', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-api-key': panelApiKey },
