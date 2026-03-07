@@ -3,24 +3,14 @@ import { Client } from 'ssh2';
 
 const TEST_SERVER = { host: '46.101.52.177', username: 'root' };
 
-// Validate API key
 function validateApiKey(req) {
   const authHeader = req.headers.get('x-api-key') || '';
   const validKey = process.env.PANEL_API_KEY;
-  if (!validKey || authHeader !== validKey) {
-    return false;
-  }
+  if (!validKey || authHeader !== validKey) return false;
   return true;
 }
 
-// Sanitize proxy input to prevent command injection
-function sanitizeInput(val) {
-  if (!val || typeof val !== 'string') return null;
-  if (/[;&|`$(){}!#\n\r\\\'"<>]/.test(val)) return null;
-  return val.trim();
-}
-
-async function runSSHCommand(server, command, timeout = 10000) {
+async function runSSHCommand(server, command, timeout = 30000) {
   return new Promise((resolve) => {
     const conn = new Client();
     let output = '';
@@ -45,7 +35,7 @@ async function runSSHCommand(server, command, timeout = 10000) {
           return done({ status: 'error', output: err.message });
         }
         stream.on('data', (data) => { output += data.toString(); });
-        stream.stderr.on('data', (data) => { /* ignore stderr */ });
+        stream.stderr.on('data', (data) => { /* ignore */ });
         stream.on('close', () => {
           clearTimeout(timer);
           done({ status: 'success', output: output.trim() });
@@ -70,7 +60,6 @@ async function runSSHCommand(server, command, timeout = 10000) {
 }
 
 export async function POST(req) {
-  // Authentication check
   if (!validateApiKey(req)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
@@ -78,60 +67,90 @@ export async function POST(req) {
   try {
     const { host, port, username, password } = await req.json();
 
-    // Sanitize all inputs to prevent command injection
-    const safeHost = sanitizeInput(host);
-    const safePort = sanitizeInput(String(port));
-    const safeUsername = sanitizeInput(username);
-    const safePassword = sanitizeInput(password);
-
-    if (!safeHost || !safePort || !safeUsername || !safePassword) {
-      return NextResponse.json({ status: 'error', message: 'بيانات غير صالحة - تأكد من عدم وجود أحرف خاصة' });
+    if (!host || !port || !username || !password) {
+      return NextResponse.json({ status: 'error', message: 'بيانات ناقصة' });
     }
 
-    // Test proxy: first get IP, then check country
-    const proxyUrl = `http://${safeUsername}:${safePassword}@${safeHost}:${safePort}`;
-    const cmd = `IP=$(curl -s -x "${proxyUrl}" --connect-timeout 15 https://ipv4.icanhazip.com 2>/dev/null); echo "IP:$IP"; if [ -n "$IP" ]; then curl -s "http://ip-api.com/json/$IP" --connect-timeout 10 2>/dev/null; fi`;
+    // The password from the UI is the BASE password (e.g. j7HGTQiRnys66RIM)
+    // visit.py automatically appends _country-SaudiArabia_session-xxx
+    // For proxy check, we test with _country-SaudiArabia appended
+    const testPassword = password.includes('_country-') ? password : `${password}_country-SaudiArabia`;
 
-    const result = await runSSHCommand(TEST_SERVER, cmd, 25000);
+    // Use base64 encoding to safely pass credentials through shell
+    const credsB64 = Buffer.from(JSON.stringify({
+      user: username,
+      pass: testPassword,
+      host: host,
+      port: String(port)
+    })).toString('base64');
+
+    const cmd = `python3 -c "
+import requests, sys, json, base64
+creds = json.loads(base64.b64decode('${credsB64}').decode())
+try:
+    proxy_url = 'http://' + creds['user'] + ':' + creds['pass'] + '@' + creds['host'] + ':' + creds['port']
+    proxies = {'http': proxy_url, 'https': proxy_url}
+    r = requests.get('https://ipv4.icanhazip.com', proxies=proxies, timeout=20)
+    ip = r.text.strip()
+    if ip:
+        try:
+            geo = requests.get('http://ip-api.com/json/' + ip, timeout=10).json()
+            print(json.dumps({'ok': True, 'ip': ip, 'country': geo.get('country','?'), 'cc': geo.get('countryCode','')}))
+        except:
+            print(json.dumps({'ok': True, 'ip': ip, 'country': '?', 'cc': ''}))
+    else:
+        print(json.dumps({'ok': False, 'error': 'empty_ip'}))
+except requests.exceptions.ProxyError as e:
+    err = str(e)
+    if '407' in err: print(json.dumps({'ok': False, 'error': 'auth_failed'}))
+    elif '402' in err: print(json.dumps({'ok': False, 'error': 'no_balance'}))
+    else: print(json.dumps({'ok': False, 'error': 'proxy_error'}))
+except Exception as e:
+    print(json.dumps({'ok': False, 'error': str(e)[:200]}))
+"`;
+
+    const result = await runSSHCommand(TEST_SERVER, cmd, 30000);
 
     if (result.status === 'error') {
-      return NextResponse.json({ status: 'error', message: 'تعذر الاتصال بالسيرفر للفحص' });
+      return NextResponse.json({ status: 'error', message: 'تعذر الاتصال بالسيرفر: ' + result.output.substring(0, 100) });
     }
 
-    const output = result.output.trim();
-    const lines = output.split('\n');
-    const ipLine = lines[0] || '';
-    const ip = ipLine.replace('IP:', '').trim();
-
-    if (!ip) {
-      // No IP returned - proxy failed
-      if (output.includes('407') || output.includes('Auth')) {
-        return NextResponse.json({ status: 'error', message: 'خطأ بالمصادقة - تأكد من اسم المستخدم وكلمة المرور' });
-      }
-      if (output.includes('402') || output.includes('Payment') || output.includes('bandwidth')) {
-        return NextResponse.json({ status: 'expired', message: '⚠️ الرصيد خلص - يجب إضافة رصيد' });
-      }
-      return NextResponse.json({ status: 'error', message: 'تعذر الاتصال بالبروكسي - تأكد من البيانات' });
+    // Parse JSON from output
+    const lines = result.output.split('\n');
+    let jsonData = null;
+    for (const line of lines) {
+      try {
+        const parsed = JSON.parse(line.trim());
+        if (typeof parsed.ok !== 'undefined') { jsonData = parsed; break; }
+      } catch(e) {}
     }
 
-    // Got IP - try to parse country info
-    const jsonStr = lines.slice(1).join('\n');
-    try {
-      const info = JSON.parse(jsonStr);
-      if (info.status === 'success') {
-        const isSaudi = info.countryCode === 'SA';
-        return NextResponse.json({ 
-          status: 'active', 
-          message: `البروكسي شغال ✅ | IP: ${ip} | ${info.country}${isSaudi ? ' 🇸🇦' : ' ⚠️'}` 
-        });
-      }
-    } catch(e) {
-      // Could not get country info but proxy works
+    if (!jsonData) {
+      return NextResponse.json({ status: 'error', message: 'فشل الفحص: ' + result.output.substring(0, 200) });
     }
 
-    return NextResponse.json({ status: 'active', message: `البروكسي شغال ✅ | IP: ${ip}` });
+    if (jsonData.ok) {
+      const isSaudi = jsonData.cc === 'SA';
+      return NextResponse.json({ 
+        status: 'active', 
+        message: `✅ البروكسي شغال | IP: ${jsonData.ip} | ${jsonData.country}${isSaudi ? ' 🇸🇦' : ' ⚠️'}`,
+        ip: jsonData.ip,
+        country: jsonData.country,
+        isSaudi
+      });
+    } else {
+      const errorMap = {
+        'auth_failed': '❌ خطأ بالمصادقة - تأكد من كلمة المرور',
+        'no_balance': '⚠️ الرصيد خلص - يجب إضافة رصيد',
+        'proxy_error': '❌ فشل الاتصال بالبروكسي',
+        'empty_ip': '❌ البروكسي ما رجع IP'
+      };
+      const msg = errorMap[jsonData.error] || `❌ خطأ: ${jsonData.error}`;
+      const status = jsonData.error === 'no_balance' ? 'expired' : 'error';
+      return NextResponse.json({ status, message: msg });
+    }
 
   } catch (error) {
-    return NextResponse.json({ status: 'error', message: error.message }, { status: 500 });
+    return NextResponse.json({ status: 'error', message: 'خطأ: ' + error.message }, { status: 500 });
   }
 }

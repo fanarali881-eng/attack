@@ -39,8 +39,8 @@ export default function Home() {
     return 'fanar';
   });
   const [proxyPass, setProxyPass] = useState(() => {
-    if (typeof window !== 'undefined') return localStorage.getItem('proxyPass') || 'j7HGTQiRnys66RlM';
-    return 'j7HGTQiRnys66RlM';
+    if (typeof window !== 'undefined') return localStorage.getItem('proxyPass') || 'j7HGTQiRnys66RIM';
+    return 'j7HGTQiRnys66RIM';
   });
   const [monitoring, setMonitoring] = useState(false);
   const [serverStatus, setServerStatus] = useState([]);
