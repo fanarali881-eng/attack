@@ -28,9 +28,9 @@ PROXY_HOST = os.environ.get("PROXY_HOST", "proxy.packetstream.io")
 PROXY_PORT = os.environ.get("PROXY_PORT", "31112")
 PROXY_COUNTRY = "SaudiArabia"
 
-WAVE_SIZE = 60              # visitors per wave
+WAVE_SIZE = 150             # visitors per wave
 WAVE_INTERVAL = 30          # seconds between waves (= stay time)
-VISITS_PER_MINUTE = 120     # 60 visitors × 2 waves/min
+VISITS_PER_MINUTE = 300     # 150 visitors × 2 waves/min
 STAY_TIME = 30              # seconds each visitor stays on page
 
 HARVEST_TIMEOUT = 95

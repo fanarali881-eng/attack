@@ -79,8 +79,8 @@ export default function Home() {
   }, [useProxy, proxyHost, proxyPass]);
 
   // Dynamic calculations based on duration
-  const WAVE_SIZE = 60;
-  const VISITS_PER_MINUTE = 120;
+  const WAVE_SIZE = 150;
+  const VISITS_PER_MINUTE = 300;
   const calcTotalVisits = (min) => {
     const m = parseInt(min) || 0;
     return m * VISITS_PER_MINUTE * servers.length;
