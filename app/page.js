@@ -9,6 +9,7 @@ export default function Home() {
   const [logs, setLogs] = useState([]);
   const [loading, setLoading] = useState(false);
   const [activeAction, setActiveAction] = useState('');
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const [showServerPanel, setShowServerPanel] = useState(false);
   const [servers, setServers] = useState(() => {
     if (typeof window !== 'undefined') {
@@ -52,6 +53,7 @@ export default function Home() {
     return '2captcha';
   });
   const [proxyStatus, setProxyStatus] = useState(null);
+  const [phase, setPhase] = useState('idle'); // idle, scanning, starting, running, finished
   const intervalRef = useRef(null);
   const countdownRef = useRef(null);
   const [panelApiKey, setPanelApiKey] = useState(() => {
@@ -92,10 +94,9 @@ export default function Home() {
   }, [useProxy, proxyHost, proxyPass]);
 
   // Dynamic calculations
-  const ws = parseInt(waveSize) || 60;
+  const ws = parseInt(waveSize) || 200;
   const calcTotalVisits = (min) => (parseInt(min) || 0) * ws * 2 * servers.length;
   const calcTotalWaves = (min) => (parseInt(min) || 0) * 2;
-
   const totalVisitsEstimate = calcTotalVisits(durationMin);
   const totalWaves = calcTotalWaves(durationMin);
   const activeVisitorsEstimate = ws * servers.length;
@@ -127,7 +128,7 @@ export default function Home() {
         if (realSpeed > 0) setRemainingSeconds(Math.ceil(remaining / realSpeed));
       }
       const activeServers = serverStatus.filter(s => s.status === 'running' || s.status === 'starting');
-      if (activeServers.length === 0 && finishedServers.length > 0) setRemainingSeconds(0);
+      if (activeServers.length === 0 && finishedServers.length > 0) { setRemainingSeconds(0); setPhase('finished'); }
     }
   }, [serverStatus, attackStartTime, monitoring]);
 
@@ -158,8 +159,10 @@ export default function Home() {
         setServerStatus(filtered);
         const activeServers = filtered.filter(s => s.status === 'running');
         const finishedServers = filtered.filter(s => s.status === 'finished');
+        if (activeServers.length > 0) setPhase('running');
         if (activeServers.length === 0 && finishedServers.length > 0) {
           stopMonitoring();
+          setPhase('finished');
           const sumVisits = filtered.reduce((sum, s) => sum + (s.visits || 0), 0);
           const sumErrors = filtered.reduce((sum, s) => sum + (s.errors || 0), 0);
           const maxElapsed = Math.max(...filtered.map(s => s.elapsed || 0), 0);
@@ -191,71 +194,152 @@ export default function Home() {
     return [{ host: proxyHost, port: proxyPort, username: proxyUser, password: proxyPass }];
   };
 
-  // Scan site
-  const handleScan = async () => {
+  // ===== MAIN ACTION: One-click Start (scan + start) =====
+  const handleStart = async () => {
     if (!url) return addLog('❌ ادخل الرابط أولاً');
     if (!/^https?:\/\//i.test(url)) return addLog('❌ الرابط لازم يبدأ بـ http:// أو https://');
-    setScanning(true);
+    if (servers.length === 0) return addLog('❌ لا يوجد سيرفرات');
+
+    setLoading(true);
+    setActiveAction('start');
     setScanResult(null);
-    addLog(`🔍 جاري فحص ${url}...`);
+    setServerStatus([]);
+    setAttackStartTime(null);
+    setRemainingSeconds(null);
+    setAttackSummary(null);
+    stopMonitoring();
+
+    // Phase 1: Auto-scan
+    setPhase('scanning');
+    addLog(`🔍 جاري فحص ${url} تلقائياً...`);
+    
+    let detectedScanResult = null;
     try {
-      const res = await fetch('/api/control', {
+      const scanRes = await fetch('/api/control', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-api-key': panelApiKey },
         body: JSON.stringify({ action: 'scan', url, servers, proxies: buildProxyList() })
       });
-      const data = await res.json();
-      if (data.scanResult) {
-        setScanResult(data.scanResult);
-        const modeNames = { socketio: '🔌 Socket.IO (أسرع)', cloudflare: '☁️ Cloudflare (FlareSolverr)', http: '🌐 HTTP مباشر' };
-        addLog(`✅ نتيجة الفحص: ${modeNames[data.scanResult.mode] || data.scanResult.mode} | ${data.scanResult.pages?.length || 0} صفحات`);
+      const scanData = await scanRes.json();
+      if (scanData.scanResult) {
+        detectedScanResult = scanData.scanResult;
+        setScanResult(detectedScanResult);
+        const modeNames = { socketio: '🔌 Socket.IO', cloudflare: '☁️ Cloudflare', http: '🌐 HTTP مباشر' };
+        const protNames = { cloudflare: 'Cloudflare', akamai: 'Akamai', datadome: 'DataDome', perimeterx: 'PerimeterX', none: 'لا يوجد' };
+        addLog(`✅ الحماية: ${protNames[detectedScanResult.protection] || detectedScanResult.protection || 'غير معروف'} | الوضع: ${modeNames[detectedScanResult.mode] || detectedScanResult.mode}`);
+        if (detectedScanResult.socket_url) addLog(`🔌 Socket URL مكتشف: ${detectedScanResult.socket_url}`);
+        if (detectedScanResult.captcha_type) addLog(`🔑 CAPTCHA: ${detectedScanResult.captcha_type}`);
       } else {
-        addLog(`⚠️ فشل الفحص: ${data.raw || data.error || 'غير معروف'}`);
+        addLog(`⚠️ فشل الفحص - سيتم استخدام الوضع التلقائي`);
       }
     } catch(e) {
-      addLog(`❌ خطأ في الفحص: ${e.message}`);
+      addLog(`⚠️ خطأ في الفحص: ${e.message} - سيتم المتابعة`);
     }
-    setScanning(false);
-  };
 
-  const handleAction = async (action) => {
-    if (!panelApiKey) return addLog('❌ ادخل مفتاح API أولاً');
-    if (action === 'start' && !url) return addLog('❌ ادخل الرابط أولاً');
-    if (action === 'start' && !/^https?:\/\//i.test(url)) return addLog('❌ الرابط لازم يبدأ بـ http:// أو https://');
-    if (servers.length === 0) return addLog('❌ لا يوجد سيرفرات');
-
-    setLoading(true); setActiveAction(action);
-    const actionNames = { setup: 'تجهيز السيرفرات', deploy: 'رفع السكريبت', start: 'بدء الهجوم', stop: 'إيقاف الكل' };
-    addLog(`🚀 جاري ${actionNames[action]}...`);
-
-    if (action === 'start') {
-      addLog(`📊 المدة: ${durationMin} دقيقة | الموجة: ${waveSize} زائر | البقاء: ${stayTime}ث | 👥 ~${activeVisitorsEstimate} نشط`);
-      stopMonitoring(); setServerStatus([]); setAttackStartTime(null); setRemainingSeconds(null); setAttackSummary(null);
-    }
+    // Phase 2: Start attack
+    setPhase('starting');
+    addLog(`🚀 جاري بدء الهجوم على ${servers.length} سيرفرات...`);
+    addLog(`📊 المدة: ${durationMin} دقيقة | الموجة: ${waveSize} زائر | البقاء: ${stayTime}ث | 👥 ~${activeVisitorsEstimate} نشط`);
 
     try {
+      const effectiveSocketUrl = socketUrl || (detectedScanResult?.socket_url) || undefined;
       const res = await fetch('/api/control', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-api-key': panelApiKey },
-        body: JSON.stringify({ action, url, durationMin: parseInt(durationMin), waveSize: parseInt(waveSize), stayTime: parseInt(stayTime), servers, proxies: buildProxyList(), socketUrl: socketUrl || undefined, captchaApiKey: captchaApiKey || undefined, captchaService: captchaService || undefined })
+        body: JSON.stringify({
+          action: 'start', url,
+          durationMin: parseInt(durationMin),
+          waveSize: parseInt(waveSize),
+          stayTime: parseInt(stayTime),
+          servers,
+          proxies: buildProxyList(),
+          socketUrl: effectiveSocketUrl,
+          captchaApiKey: captchaApiKey || undefined,
+          captchaService: captchaService || undefined
+        })
       });
       const data = await res.json();
       if (data.error) {
         addLog(`❌ ${data.error}`);
+        setPhase('idle');
       } else {
+        let successCount = 0;
         data.results.forEach(r => {
-          addLog(r.status === 'success' ? `✅ ${r.host}: ${r.output || 'تم'}` : `❌ ${r.host}: ${r.error}`);
+          if (r.status === 'success') { successCount++; addLog(`✅ ${r.host}: ${r.output || 'تم'}`); }
+          else addLog(`❌ ${r.host}: ${r.error}`);
         });
-        if (action === 'start') {
+        if (successCount > 0) {
+          setPhase('running');
           setAttackStartTime(Date.now());
           setRemainingSeconds(parseInt(durationMin) * 60);
-          addLog('⏳ انتظار بدء العمليات...');
+          addLog(`⚡ تم البدء على ${successCount}/${servers.length} سيرفرات`);
           setTimeout(startMonitoring, 8000);
+        } else {
+          addLog('❌ فشل البدء على جميع السيرفرات');
+          setPhase('idle');
         }
-        if (action === 'stop') { stopMonitoring(); setServerStatus([]); setAttackStartTime(null); setRemainingSeconds(null); }
       }
+    } catch (err) {
+      addLog(`❌ خطأ: ${err.message}`);
+      setPhase('idle');
+    }
+    setLoading(false);
+    setActiveAction('');
+  };
+
+  // Stop
+  const handleStop = async () => {
+    setLoading(true);
+    setActiveAction('stop');
+    addLog('⏹️ جاري إيقاف الهجوم...');
+    try {
+      const res = await fetch('/api/control', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-api-key': panelApiKey },
+        body: JSON.stringify({ action: 'stop', servers })
+      });
+      const data = await res.json();
+      if (data.results) data.results.forEach(r => addLog(r.status === 'success' ? `✅ ${r.host}: تم الإيقاف` : `❌ ${r.host}: ${r.error}`));
     } catch (err) { addLog(`❌ خطأ: ${err.message}`); }
-    setLoading(false); setActiveAction('');
+    stopMonitoring();
+    setServerStatus([]);
+    setAttackStartTime(null);
+    setRemainingSeconds(null);
+    setPhase('idle');
+    setLoading(false);
+    setActiveAction('');
+  };
+
+  // Setup servers
+  const handleSetup = async () => {
+    setLoading(true);
+    addLog('⚙️ جاري تجهيز السيرفرات...');
+    try {
+      const res = await fetch('/api/control', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-api-key': panelApiKey },
+        body: JSON.stringify({ action: 'setup', servers })
+      });
+      const data = await res.json();
+      if (data.results) data.results.forEach(r => addLog(r.status === 'success' ? `✅ ${r.host}: ${r.output || 'تم'}` : `❌ ${r.host}: ${r.error}`));
+    } catch (err) { addLog(`❌ خطأ: ${err.message}`); }
+    setLoading(false);
+  };
+
+  // Deploy script
+  const handleDeploy = async () => {
+    setLoading(true);
+    addLog('📤 جاري رفع السكريبت...');
+    try {
+      const res = await fetch('/api/control', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-api-key': panelApiKey },
+        body: JSON.stringify({ action: 'deploy', servers })
+      });
+      const data = await res.json();
+      if (data.results) data.results.forEach(r => addLog(r.status === 'success' ? `✅ ${r.host}: ${r.output || 'تم'}` : `❌ ${r.host}: ${r.error}`));
+    } catch (err) { addLog(`❌ خطأ: ${err.message}`); }
+    setLoading(false);
   };
 
   const getStatusColor = (s) => ({ running:'#22c55e', starting:'#facc15', finished:'#3b82f6', idle:'#6b7280', offline:'#ef4444' }[s] || '#6b7280');
@@ -264,126 +348,81 @@ export default function Home() {
   const getModeColor = (m) => ({ socketio:'#06b6d4', cloudflare:'#f97316', http:'#22c55e', socket_wave:'#06b6d4', wave_cf:'#f97316', wave_fast:'#22c55e', detecting:'#facc15' }[m] || '#6b7280');
 
   const ff = "'Courier New', 'Noto Sans Arabic', 'Segoe UI', Tahoma, monospace";
-  const s = {
+  const st = {
     page: { minHeight:'100vh', backgroundColor:'#000', color:'#22c55e', padding:'24px', fontFamily:ff, direction:'rtl' },
     box: { maxWidth:'850px', margin:'0 auto', border:'1px solid #166534', padding:'24px', borderRadius:'12px', backgroundColor:'#111827' },
     title: { fontSize:'26px', fontWeight:'bold', marginBottom:'20px', textAlign:'center', borderBottom:'1px solid #166534', paddingBottom:'12px', color:'#22c55e' },
     input: { width:'100%', backgroundColor:'#000', border:'1px solid #166534', padding:'10px 12px', borderRadius:'6px', color:'#fff', fontSize:'14px', fontFamily:ff, outline:'none', boxSizing:'border-box' },
-    inputSm: { width:'80px', backgroundColor:'#000', border:'1px solid #166534', padding:'10px', borderRadius:'6px', color:'#fff', fontSize:'14px', fontFamily:ff, outline:'none', textAlign:'center' },
     label: { display:'block', marginBottom:'6px', fontSize:'13px', color:'#22c55e' },
-    btn: (bg) => ({ display:'flex', alignItems:'center', justifyContent:'center', gap:'6px', backgroundColor:bg, color:'#fff', padding:'14px 8px', borderRadius:'8px', cursor:'pointer', border:'none', fontSize:'13px', fontFamily:ff, transition:'opacity 0.2s' }),
+    btn: (bg) => ({ display:'flex', alignItems:'center', justifyContent:'center', gap:'6px', backgroundColor:bg, color:'#fff', padding:'14px 8px', borderRadius:'8px', cursor:'pointer', border:'none', fontSize:'14px', fontFamily:ff, transition:'opacity 0.2s', fontWeight:'bold' }),
     card: { backgroundColor:'#111827', border:'1px solid #1f2937', borderRadius:'8px', padding:'14px', marginBottom:'10px' },
     badge: (c) => ({ fontSize:'11px', padding:'2px 8px', borderRadius:'12px', color:c, border:`1px solid ${c}`, fontFamily:ff }),
   };
 
-  // Totals
   const totalVisits = serverStatus.reduce((sum, x) => sum + (x.visits || 0), 0);
   const totalErrors = serverStatus.reduce((sum, x) => sum + (x.errors || 0), 0);
   const totalActiveVisitors = serverStatus.reduce((sum, x) => sum + (x.active_visitors || 0), 0);
 
+  const phaseText = { idle: '⚪ جاهز', scanning: '🔍 يفحص الموقع...', starting: '🚀 يبدأ الهجوم...', running: '⚡ شغال', finished: '✅ انتهى' };
+  const phaseColor = { idle: '#6b7280', scanning: '#facc15', starting: '#f97316', running: '#22c55e', finished: '#3b82f6' };
+
   return (
-    <div style={s.page}>
-      <div style={s.box}>
-        <h1 style={s.title}>⚔️ لوحة تحكم الهجوم v12</h1>
+    <div style={st.page}>
+      <div style={st.box}>
+        <h1 style={st.title}>⚔️ لوحة التحكم v12</h1>
 
-        {/* API Key */}
-        <div style={{ marginBottom:'14px' }}>
-          <div style={{ display:'flex', alignItems:'center', gap:'8px', marginBottom:'6px' }}>
-            <label style={{ fontSize:'13px', color:'#ef4444' }}>🔑 مفتاح الدخول</label>
-            <span style={{ fontSize:'11px', color: panelApiKey ? '#22c55e' : '#ef4444' }}>{panelApiKey ? '🔒 مُدخل' : '⚠️ مطلوب'}</span>
-          </div>
-          <div style={{ position:'relative' }}>
-            <input type={showApiKey ? 'text' : 'password'} value={panelApiKey} onChange={(e) => setPanelApiKey(e.target.value)} placeholder="API Key..." style={{...s.input, borderColor: panelApiKey ? '#22c55e' : '#ef4444', paddingLeft:'36px'}} />
-            <button onClick={() => setShowApiKey(!showApiKey)} style={{ position:'absolute', left:'8px', top:'50%', transform:'translateY(-50%)', background:'none', border:'none', cursor:'pointer', fontSize:'18px', padding:'0', lineHeight:'1' }}>{showApiKey ? '🙈' : '👁️'}</button>
-          </div>
+        {/* Phase indicator */}
+        <div style={{ textAlign:'center', marginBottom:'16px', padding:'8px', backgroundColor:'#0a0a0a', borderRadius:'8px', border:`1px solid ${phaseColor[phase]}` }}>
+          <span style={{ fontSize:'16px', color: phaseColor[phase], fontWeight:'bold' }}>{phaseText[phase]}</span>
+          {phase === 'running' && <span style={{ fontSize:'12px', color:'#9ca3af', marginRight:'10px' }}> | 🖥️ {servers.length} سيرفرات | 👥 ~{activeVisitorsEstimate} نشط</span>}
         </div>
 
-        {/* Servers */}
+        {/* ===== MAIN CONTROLS: URL + Duration + Start/Stop ===== */}
         <div style={{ marginBottom:'16px' }}>
-          <button onClick={() => setShowServerPanel(!showServerPanel)} style={{ display:'flex', alignItems:'center', gap:'6px', fontSize:'13px', color:'#facc15', cursor:'pointer', background:'none', border:'none', fontFamily:ff }}>
-            🖥️ السيرفرات ({servers.length}) {showServerPanel ? '▲' : '▼'}
-          </button>
-          {showServerPanel && (
-            <div style={{ border:'1px solid #14532d', borderRadius:'8px', padding:'12px', marginTop:'8px', backgroundColor:'#000' }}>
-              {servers.map((sv, i) => (
-                <div key={i} style={{ display:'flex', alignItems:'center', justifyContent:'space-between', backgroundColor:'#111827', padding:'6px 10px', borderRadius:'6px', fontSize:'13px', color:'#4ade80', marginBottom:'6px' }}>
-                  <span>🖥️ {sv.host}</span>
-                  <button onClick={() => removeServer(sv.host)} style={{ color:'#ef4444', cursor:'pointer', background:'none', border:'none', fontSize:'14px' }}>🗑️</button>
-                </div>
-              ))}
-              <div style={{ display:'flex', gap:'6px', marginTop:'8px' }}>
-                <input type="text" value={newHost} onChange={(e) => setNewHost(e.target.value)} placeholder="IP" style={{...s.input, flex:1}} />
-                <button onClick={addServer} style={s.btn('#14532d')}>+ إضافة</button>
-              </div>
+          <label style={st.label}>🔗 رابط الموقع المستهدف</label>
+          <input type="text" value={url} onChange={(e) => { setUrl(e.target.value); setScanResult(null); }} placeholder="https://example.com" style={{...st.input, fontSize:'16px', padding:'14px'}} disabled={phase === 'running' || phase === 'scanning' || phase === 'starting'} />
+        </div>
+
+        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'12px', marginBottom:'16px' }}>
+          <div>
+            <label style={st.label}>⏱️ المدة (دقائق)</label>
+            <input type="number" value={durationMin} onChange={(e) => setDurationMin(e.target.value)} min="1" style={{...st.input, textAlign:'center', fontSize:'16px'}} disabled={phase === 'running'} />
+          </div>
+          <div style={{ display:'flex', alignItems:'end' }}>
+            <div style={{ width:'100%', textAlign:'center', padding:'12px', backgroundColor:'#0a1628', borderRadius:'8px', border:'1px solid #1e3a5f' }}>
+              <div style={{ fontSize:'20px', fontWeight:'bold', color:'#06b6d4' }}>👥 {activeVisitorsEstimate.toLocaleString()}</div>
+              <div style={{ fontSize:'10px', color:'#6b7280' }}>زائر نشط دائماً</div>
             </div>
+          </div>
+        </div>
+
+        {/* Start / Stop buttons */}
+        <div style={{ display:'grid', gridTemplateColumns: phase === 'running' ? '1fr 1fr' : '1fr', gap:'10px', marginBottom:'16px' }}>
+          {phase !== 'running' && (
+            <button onClick={handleStart} disabled={loading || phase === 'scanning' || phase === 'starting'} style={{...st.btn('#16a34a'), opacity: loading ? 0.5 : 1, padding:'18px', fontSize:'18px'}}>
+              {phase === 'scanning' ? '🔍 يفحص الموقع...' : phase === 'starting' ? '🚀 يبدأ...' : '▶️ بدء'}
+            </button>
+          )}
+          {phase === 'running' && (
+            <>
+              <div style={{ textAlign:'center', padding:'14px', backgroundColor:'#052e16', borderRadius:'8px', border:'1px solid #22c55e' }}>
+                <div style={{ fontSize:'18px', fontWeight:'bold', color:'#22c55e' }}>⚡ شغال</div>
+              </div>
+              <button onClick={handleStop} disabled={loading} style={{...st.btn('#dc2626'), opacity: loading ? 0.5 : 1, padding:'18px', fontSize:'16px'}}>
+                {activeAction === 'stop' ? '⏳ يوقف...' : '⏹️ إيقاف'}
+              </button>
+            </>
           )}
         </div>
 
-        {/* Proxy */}
-        <div style={{ marginBottom:'14px' }}>
-          <div style={{ display:'flex', alignItems:'center', gap:'10px', marginBottom:'8px' }}>
-            <label style={{ fontSize:'13px', color:'#22c55e' }}>🌐 بروكسي سعودي</label>
-            <button onClick={() => setUseProxy(!useProxy)} style={{ background: useProxy ? '#22c55e' : '#374151', color:'#fff', border:'none', padding:'3px 14px', borderRadius:'12px', cursor:'pointer', fontSize:'11px', fontFamily:ff }}>
-              {useProxy ? '✅ مفعّل' : '❌ معطّل'}
-            </button>
-            {useProxy && proxyStatus === 'active' && <span style={{ background:'#166534', color:'#4ade80', padding:'3px 10px', borderRadius:'12px', fontSize:'11px' }}>✅ شغال</span>}
-            {useProxy && proxyStatus === 'expired' && <span style={{ background:'#dc2626', color:'#fff', padding:'3px 10px', borderRadius:'12px', fontSize:'11px' }}>⚠️ منتهي</span>}
-            {useProxy && proxyStatus !== 'checking' && <button onClick={checkProxy} style={{ background:'none', border:'1px solid #374151', color:'#9ca3af', padding:'3px 8px', borderRadius:'6px', cursor:'pointer', fontSize:'10px', fontFamily:ff }}>🔄</button>}
-          </div>
-          {useProxy && (
-            <div style={{ border:'1px solid #14532d', borderRadius:'8px', padding:'12px', backgroundColor:'#000' }}>
-              <div style={{ display:'grid', gridTemplateColumns:'2fr 1fr', gap:'6px', marginBottom:'6px' }}>
-                <div><label style={{ fontSize:'10px', color:'#6b7280' }}>Host</label><input type="text" value={proxyHost} onChange={(e) => setProxyHost(e.target.value)} style={s.input} /></div>
-                <div><label style={{ fontSize:'10px', color:'#6b7280' }}>Port</label><input type="text" value={proxyPort} onChange={(e) => setProxyPort(e.target.value)} style={s.input} /></div>
-              </div>
-              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'6px' }}>
-                <div><label style={{ fontSize:'10px', color:'#6b7280' }}>Username</label><input type="text" value={proxyUser} onChange={(e) => setProxyUser(e.target.value)} style={s.input} /></div>
-                <div><label style={{ fontSize:'10px', color:'#6b7280' }}>Password</label><input type="text" value={proxyPass} onChange={(e) => setProxyPass(e.target.value)} style={s.input} /></div>
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Target URL + Scan */}
-        <div style={{ marginBottom:'12px' }}>
-          <label style={s.label}>🔗 الرابط المستهدف</label>
-          <div style={{ display:'flex', gap:'8px' }}>
-            <input type="text" value={url} onChange={(e) => { setUrl(e.target.value); setScanResult(null); }} placeholder="https://example.com" style={{...s.input, flex:1}} />
-            <button onClick={handleScan} disabled={scanning} style={{...s.btn('#7c3aed'), opacity: scanning ? 0.5 : 1, minWidth:'100px'}}>
-              {scanning ? '⏳ يفحص...' : '🔍 فحص ذكي'}
-            </button>
-          </div>
-        </div>
-
-        {/* Socket URL (optional) */}
-        <div style={{ marginBottom:'12px' }}>
-          <label style={{...s.label, color:'#06b6d4'}}>🔌 Socket URL (اختياري - للمواقع اللي عندها Socket.IO خلف Cloudflare)</label>
-          <input type="text" value={socketUrl} onChange={(e) => setSocketUrl(e.target.value)} placeholder="https://server.onrender.com (اتركه فاضي للفحص التلقائي)" style={{...s.input, borderColor: socketUrl ? '#06b6d4' : '#166534'}} />
-          {socketUrl && <div style={{ marginTop:'4px', fontSize:'10px', color:'#06b6d4' }}>🔌 سيتم استخدام Socket.IO مباشرة على: {socketUrl}</div>}
-        </div>
-
-        {/* CAPTCHA Solver */}
-        <div style={{ marginBottom:'12px' }}>
-          <label style={{...s.label, color:'#f59e0b'}}>🔑 CAPTCHA Solver (اختياري - لتجاوز Turnstile/reCAPTCHA/hCaptcha)</label>
-          <div style={{ display:'grid', gridTemplateColumns:'2fr 1fr', gap:'8px' }}>
-            <input type="text" value={captchaApiKey} onChange={(e) => setCaptchaApiKey(e.target.value)} placeholder="API Key من 2Captcha أو CapSolver" style={{...s.input, borderColor: captchaApiKey ? '#f59e0b' : '#166534'}} />
-            <select value={captchaService} onChange={(e) => setCaptchaService(e.target.value)} style={{...s.input, borderColor:'#f59e0b'}}>
-              <option value="2captcha">2Captcha</option>
-              <option value="capsolver">CapSolver</option>
-            </select>
-          </div>
-          {captchaApiKey && <div style={{ marginTop:'4px', fontSize:'10px', color:'#f59e0b' }}>🔑 سيتم حل CAPTCHA تلقائياً عبر {captchaService}</div>}
-          {!captchaApiKey && <div style={{ marginTop:'4px', fontSize:'10px', color:'#6b7280' }}>بدون مفتاح = يتجاوز بـ TLS spoofing فقط (يشتغل مع أغلب المواقع)</div>}
-        </div>
-
-        {/* Scan Result */}
+        {/* Scan Result (auto-shown after scan) */}
         {scanResult && (
           <div style={{ border:'1px solid #7c3aed', borderRadius:'8px', padding:'14px', marginBottom:'14px', backgroundColor:'#1a1033' }}>
-            <div style={{ fontSize:'14px', color:'#a78bfa', marginBottom:'10px', fontWeight:'bold' }}>📋 نتيجة الفحص الذكي</div>
+            <div style={{ fontSize:'14px', color:'#a78bfa', marginBottom:'10px', fontWeight:'bold' }}>📋 نتيجة الفحص</div>
             <div style={{ display:'grid', gridTemplateColumns:'repeat(3, 1fr)', gap:'10px' }}>
               <div style={{ textAlign:'center', padding:'10px', backgroundColor:'#000', borderRadius:'8px', border:`1px solid ${getModeColor(scanResult.mode)}` }}>
                 <div style={{ fontSize:'22px', color: getModeColor(scanResult.mode) }}>{getModeText(scanResult.mode)}</div>
-                <div style={{ fontSize:'10px', color:'#9ca3af', marginTop:'4px' }}>الوضع المكتشف</div>
+                <div style={{ fontSize:'10px', color:'#9ca3af', marginTop:'4px' }}>الوضع</div>
               </div>
               <div style={{ textAlign:'center', padding:'10px', backgroundColor:'#000', borderRadius:'8px', border:'1px solid #374151' }}>
                 <div style={{ fontSize:'22px', color: scanResult.has_cloudflare ? '#f97316' : '#22c55e' }}>{scanResult.has_cloudflare ? '☁️ نعم' : '✅ لا'}</div>
@@ -391,51 +430,14 @@ export default function Home() {
               </div>
               <div style={{ textAlign:'center', padding:'10px', backgroundColor:'#000', borderRadius:'8px', border:'1px solid #374151' }}>
                 <div style={{ fontSize:'22px', color:'#06b6d4' }}>{scanResult.pages?.length || 0}</div>
-                <div style={{ fontSize:'10px', color:'#9ca3af', marginTop:'4px' }}>صفحات مكتشفة</div>
+                <div style={{ fontSize:'10px', color:'#9ca3af', marginTop:'4px' }}>صفحات</div>
               </div>
             </div>
-            {scanResult.socket_url && (
-              <div style={{ marginTop:'8px', fontSize:'11px', color:'#06b6d4' }}>🔌 Socket: {scanResult.socket_url}</div>
-            )}
-            {scanResult.mode === 'socketio' && (
-              <div style={{ marginTop:'6px', fontSize:'11px', color:'#4ade80', backgroundColor:'#052e16', padding:'6px 10px', borderRadius:'6px' }}>
-                ⚡ وضع Socket.IO - أسرع وضع! الزوار يظهرون كـ "نشطين" مباشرة بدون Cloudflare bypass
-              </div>
-            )}
-            {scanResult.protection && scanResult.protection !== 'none' && (
-              <div style={{ marginTop:'8px', fontSize:'11px', color:'#f97316' }}>🛡️ حماية: {scanResult.protection.toUpperCase()}</div>
-            )}
-            {scanResult.captcha_type && (
-              <div style={{ marginTop:'4px', fontSize:'11px', color:'#f59e0b' }}>🔑 CAPTCHA: {scanResult.captcha_type} {captchaApiKey ? '(سيتم حله تلقائياً)' : '(أضف مفتاح CAPTCHA لتجاوزه)'}</div>
-            )}
-            {scanResult.mode === 'cloudflare' && (
-              <div style={{ marginTop:'6px', fontSize:'11px', color:'#fbbf24', backgroundColor:'#451a03', padding:'6px 10px', borderRadius:'6px' }}>
-                ☁️ وضع الحماية المتقدمة - TLS spoofing + {captchaApiKey ? 'CAPTCHA solver' : 'FlareSolverr'}
-              </div>
-            )}
-            {scanResult.mode === 'http' && (
-              <div style={{ marginTop:'6px', fontSize:'11px', color:'#4ade80', backgroundColor:'#052e16', padding:'6px 10px', borderRadius:'6px' }}>
-                🌐 وضع HTTP مباشر - سريع! بدون حماية
-              </div>
-            )}
+            {scanResult.socket_url && <div style={{ marginTop:'8px', fontSize:'11px', color:'#06b6d4' }}>🔌 Socket: {scanResult.socket_url}</div>}
+            {scanResult.protection && scanResult.protection !== 'none' && <div style={{ marginTop:'4px', fontSize:'11px', color:'#f97316' }}>🛡️ حماية: {scanResult.protection.toUpperCase()}</div>}
+            {scanResult.captcha_type && <div style={{ marginTop:'4px', fontSize:'11px', color:'#f59e0b' }}>🔑 CAPTCHA: {scanResult.captcha_type}</div>}
           </div>
         )}
-
-        {/* Settings */}
-        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:'10px', marginBottom:'12px' }}>
-          <div>
-            <label style={s.label}>⏱️ المدة (دقائق)</label>
-            <input type="number" value={durationMin} onChange={(e) => setDurationMin(e.target.value)} min="1" style={{...s.input, textAlign:'center'}} />
-          </div>
-          <div>
-            <label style={s.label}>🌊 حجم الموجة</label>
-            <input type="number" value={waveSize} onChange={(e) => setWaveSize(e.target.value)} min="10" max="500" style={{...s.input, textAlign:'center'}} />
-          </div>
-          <div>
-            <label style={s.label}>⏳ مدة البقاء (ثانية)</label>
-            <input type="number" value={stayTime} onChange={(e) => setStayTime(e.target.value)} min="10" max="120" style={{...s.input, textAlign:'center'}} />
-          </div>
-        </div>
 
         {/* Countdown */}
         {remainingSeconds !== null && (
@@ -447,44 +449,30 @@ export default function Home() {
         )}
 
         {/* Stats Preview */}
-        <div style={{ display:'grid', gridTemplateColumns:'repeat(4, 1fr)', gap:'8px', marginBottom:'14px', padding:'10px', backgroundColor:'#0a1628', borderRadius:'8px', border:'1px solid #1e3a5f' }}>
-          <div style={{ textAlign:'center' }}>
-            <div style={{ fontSize:'18px', fontWeight:'bold', color:'#06b6d4' }}>{totalVisitsEstimate.toLocaleString()}</div>
-            <div style={{ fontSize:'9px', color:'#6b7280' }}>إجمالي الزيارات</div>
+        {(phase === 'running' || phase === 'finished') && (
+          <div style={{ display:'grid', gridTemplateColumns:'repeat(4, 1fr)', gap:'8px', marginBottom:'14px', padding:'10px', backgroundColor:'#0a1628', borderRadius:'8px', border:'1px solid #1e3a5f' }}>
+            <div style={{ textAlign:'center' }}>
+              <div style={{ fontSize:'18px', fontWeight:'bold', color:'#06b6d4' }}>{totalVisitsEstimate.toLocaleString()}</div>
+              <div style={{ fontSize:'9px', color:'#6b7280' }}>إجمالي الزيارات</div>
+            </div>
+            <div style={{ textAlign:'center' }}>
+              <div style={{ fontSize:'18px', fontWeight:'bold', color:'#22c55e' }}>👥 {totalActiveVisitors || activeVisitorsEstimate}</div>
+              <div style={{ fontSize:'9px', color:'#6b7280' }}>زائر نشط</div>
+            </div>
+            <div style={{ textAlign:'center' }}>
+              <div style={{ fontSize:'18px', fontWeight:'bold', color:'#facc15' }}>🌊 {totalWaves * servers.length}</div>
+              <div style={{ fontSize:'9px', color:'#6b7280' }}>إجمالي الموجات</div>
+            </div>
+            <div style={{ textAlign:'center' }}>
+              <div style={{ fontSize:'18px', fontWeight:'bold', color:'#a855f7' }}>{stayTime}s</div>
+              <div style={{ fontSize:'9px', color:'#6b7280' }}>مدة بقاء الزائر</div>
+            </div>
           </div>
-          <div style={{ textAlign:'center' }}>
-            <div style={{ fontSize:'18px', fontWeight:'bold', color:'#22c55e' }}>👥 {activeVisitorsEstimate}</div>
-            <div style={{ fontSize:'9px', color:'#6b7280' }}>زائر نشط دائماً</div>
-          </div>
-          <div style={{ textAlign:'center' }}>
-            <div style={{ fontSize:'18px', fontWeight:'bold', color:'#facc15' }}>🌊 {totalWaves * servers.length}</div>
-            <div style={{ fontSize:'9px', color:'#6b7280' }}>إجمالي الموجات</div>
-          </div>
-          <div style={{ textAlign:'center' }}>
-            <div style={{ fontSize:'18px', fontWeight:'bold', color:'#a855f7' }}>{stayTime}s</div>
-            <div style={{ fontSize:'9px', color:'#6b7280' }}>مدة بقاء الزائر</div>
-          </div>
-        </div>
+        )}
 
-        {/* Control Buttons */}
-        <div style={{ display:'grid', gridTemplateColumns:'repeat(4, 1fr)', gap:'10px' }}>
-          <button onClick={() => handleAction('setup')} disabled={loading} style={{...s.btn('#581c87'), opacity: loading ? 0.5 : 1}}>
-            {activeAction === 'setup' ? '⏳' : '⚙️'} تجهيز
-          </button>
-          <button onClick={() => handleAction('deploy')} disabled={loading} style={{...s.btn('#1e3a5f'), opacity: loading ? 0.5 : 1}}>
-            {activeAction === 'deploy' ? '⏳' : '📤'} رفع السكريبت
-          </button>
-          <button onClick={() => handleAction('start')} disabled={loading} style={{...s.btn('#7f1d1d'), opacity: loading ? 0.5 : 1}}>
-            {activeAction === 'start' ? '⏳' : '▶️'} بدء الهجوم
-          </button>
-          <button onClick={() => handleAction('stop')} disabled={loading} style={{...s.btn('#374151'), opacity: loading ? 0.5 : 1}}>
-            {activeAction === 'stop' ? '⏳' : '⏹️'} إيقاف
-          </button>
-        </div>
-
-        {/* Live Monitoring */}
+        {/* ===== LIVE MONITORING ===== */}
         {(serverStatus.length > 0 || monitoring) && (
-          <div style={{ marginTop:'20px', border:'1px solid #14532d', borderRadius:'8px', padding:'14px', backgroundColor:'#0a0a0a' }}>
+          <div style={{ marginTop:'10px', border:'1px solid #14532d', borderRadius:'8px', padding:'14px', backgroundColor:'#0a0a0a' }}>
             <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'12px' }}>
               <span style={{ fontSize:'14px', color:'#22c55e' }}>📡 المراقبة الحية {monitoring && <span style={{ color:'#22c55e', fontSize:'11px' }}>(كل 15ث)</span>}</span>
               <div style={{ display:'flex', gap:'6px' }}>
@@ -504,12 +492,12 @@ export default function Home() {
 
             {/* Server Cards */}
             {serverStatus.map((sv, i) => (
-              <div key={i} style={s.card}>
+              <div key={i} style={st.card}>
                 <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'10px' }}>
                   <span style={{ fontSize:'13px', color:'#9ca3af' }}>🖥️ {sv.host}</span>
                   <div style={{ display:'flex', gap:'6px', alignItems:'center' }}>
-                    {sv.mode && <span style={s.badge(getModeColor(sv.mode))}>{getModeText(sv.mode)}</span>}
-                    <span style={s.badge(getStatusColor(sv.status))}>{getStatusText(sv.status)}</span>
+                    {sv.mode && <span style={st.badge(getModeColor(sv.mode))}>{getModeText(sv.mode)}</span>}
+                    <span style={st.badge(getStatusColor(sv.status))}>{getStatusText(sv.status)}</span>
                   </div>
                 </div>
                 {sv.active_visitors > 0 && <div style={{ fontSize:'11px', color:'#06b6d4', textAlign:'center', marginBottom:'6px' }}>👥 {sv.active_visitors} نشط | 🌊 {sv.waves_done || 0}/{sv.total_waves || 0}</div>}
@@ -582,8 +570,113 @@ export default function Home() {
           </div>
         )}
 
+        {/* ===== ADVANCED SETTINGS (hidden by default) ===== */}
+        <div style={{ marginTop:'16px' }}>
+          <button onClick={() => setShowAdvanced(!showAdvanced)} style={{ display:'flex', alignItems:'center', gap:'6px', fontSize:'13px', color:'#6b7280', cursor:'pointer', background:'none', border:'1px solid #374151', padding:'8px 16px', borderRadius:'8px', fontFamily:ff, width:'100%', justifyContent:'center' }}>
+            ⚙️ إعدادات متقدمة {showAdvanced ? '▲' : '▼'}
+          </button>
+
+          {showAdvanced && (
+            <div style={{ marginTop:'12px', border:'1px solid #374151', borderRadius:'8px', padding:'16px', backgroundColor:'#0a0a0a' }}>
+
+              {/* API Key */}
+              <div style={{ marginBottom:'14px' }}>
+                <div style={{ display:'flex', alignItems:'center', gap:'8px', marginBottom:'6px' }}>
+                  <label style={{ fontSize:'13px', color:'#ef4444' }}>🔑 مفتاح الدخول</label>
+                  <span style={{ fontSize:'11px', color: panelApiKey ? '#22c55e' : '#ef4444' }}>{panelApiKey ? '🔒 مُدخل' : '⚠️ مطلوب'}</span>
+                </div>
+                <div style={{ position:'relative' }}>
+                  <input type={showApiKey ? 'text' : 'password'} value={panelApiKey} onChange={(e) => setPanelApiKey(e.target.value)} placeholder="API Key..." style={{...st.input, borderColor: panelApiKey ? '#22c55e' : '#ef4444', paddingLeft:'36px'}} />
+                  <button onClick={() => setShowApiKey(!showApiKey)} style={{ position:'absolute', left:'8px', top:'50%', transform:'translateY(-50%)', background:'none', border:'none', cursor:'pointer', fontSize:'18px', padding:'0', lineHeight:'1' }}>{showApiKey ? '🙈' : '👁️'}</button>
+                </div>
+              </div>
+
+              {/* Wave & Stay settings */}
+              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'10px', marginBottom:'14px' }}>
+                <div>
+                  <label style={st.label}>🌊 حجم الموجة</label>
+                  <input type="number" value={waveSize} onChange={(e) => setWaveSize(e.target.value)} min="10" max="500" style={{...st.input, textAlign:'center'}} />
+                </div>
+                <div>
+                  <label style={st.label}>⏳ مدة البقاء (ثانية)</label>
+                  <input type="number" value={stayTime} onChange={(e) => setStayTime(e.target.value)} min="10" max="120" style={{...st.input, textAlign:'center'}} />
+                </div>
+              </div>
+
+              {/* Servers */}
+              <div style={{ marginBottom:'14px' }}>
+                <button onClick={() => setShowServerPanel(!showServerPanel)} style={{ display:'flex', alignItems:'center', gap:'6px', fontSize:'13px', color:'#facc15', cursor:'pointer', background:'none', border:'none', fontFamily:ff }}>
+                  🖥️ السيرفرات ({servers.length}) {showServerPanel ? '▲' : '▼'}
+                </button>
+                {showServerPanel && (
+                  <div style={{ border:'1px solid #14532d', borderRadius:'8px', padding:'12px', marginTop:'8px', backgroundColor:'#000' }}>
+                    {servers.map((sv, i) => (
+                      <div key={i} style={{ display:'flex', alignItems:'center', justifyContent:'space-between', backgroundColor:'#111827', padding:'6px 10px', borderRadius:'6px', fontSize:'13px', color:'#4ade80', marginBottom:'6px' }}>
+                        <span>🖥️ {sv.host}</span>
+                        <button onClick={() => removeServer(sv.host)} style={{ color:'#ef4444', cursor:'pointer', background:'none', border:'none', fontSize:'14px' }}>🗑️</button>
+                      </div>
+                    ))}
+                    <div style={{ display:'flex', gap:'6px', marginTop:'8px' }}>
+                      <input type="text" value={newHost} onChange={(e) => setNewHost(e.target.value)} placeholder="IP" style={{...st.input, flex:1}} />
+                      <button onClick={addServer} style={st.btn('#14532d')}>+ إضافة</button>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Proxy */}
+              <div style={{ marginBottom:'14px' }}>
+                <div style={{ display:'flex', alignItems:'center', gap:'10px', marginBottom:'8px' }}>
+                  <label style={{ fontSize:'13px', color:'#22c55e' }}>🌐 بروكسي سعودي</label>
+                  <button onClick={() => setUseProxy(!useProxy)} style={{ background: useProxy ? '#22c55e' : '#374151', color:'#fff', border:'none', padding:'3px 14px', borderRadius:'12px', cursor:'pointer', fontSize:'11px', fontFamily:ff }}>
+                    {useProxy ? '✅ مفعّل' : '❌ معطّل'}
+                  </button>
+                  {useProxy && proxyStatus === 'active' && <span style={{ background:'#166534', color:'#4ade80', padding:'3px 10px', borderRadius:'12px', fontSize:'11px' }}>✅ شغال</span>}
+                  {useProxy && proxyStatus === 'expired' && <span style={{ background:'#dc2626', color:'#fff', padding:'3px 10px', borderRadius:'12px', fontSize:'11px' }}>⚠️ منتهي</span>}
+                </div>
+                {useProxy && (
+                  <div style={{ border:'1px solid #14532d', borderRadius:'8px', padding:'12px', backgroundColor:'#000' }}>
+                    <div style={{ display:'grid', gridTemplateColumns:'2fr 1fr', gap:'6px', marginBottom:'6px' }}>
+                      <div><label style={{ fontSize:'10px', color:'#6b7280' }}>Host</label><input type="text" value={proxyHost} onChange={(e) => setProxyHost(e.target.value)} style={st.input} /></div>
+                      <div><label style={{ fontSize:'10px', color:'#6b7280' }}>Port</label><input type="text" value={proxyPort} onChange={(e) => setProxyPort(e.target.value)} style={st.input} /></div>
+                    </div>
+                    <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'6px' }}>
+                      <div><label style={{ fontSize:'10px', color:'#6b7280' }}>Username</label><input type="text" value={proxyUser} onChange={(e) => setProxyUser(e.target.value)} style={st.input} /></div>
+                      <div><label style={{ fontSize:'10px', color:'#6b7280' }}>Password</label><input type="text" value={proxyPass} onChange={(e) => setProxyPass(e.target.value)} style={st.input} /></div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Socket URL */}
+              <div style={{ marginBottom:'14px' }}>
+                <label style={{...st.label, color:'#06b6d4'}}>🔌 Socket URL (اختياري)</label>
+                <input type="text" value={socketUrl} onChange={(e) => setSocketUrl(e.target.value)} placeholder="https://server.onrender.com (يُكتشف تلقائياً)" style={{...st.input, borderColor: socketUrl ? '#06b6d4' : '#166534'}} />
+              </div>
+
+              {/* CAPTCHA */}
+              <div style={{ marginBottom:'14px' }}>
+                <label style={{...st.label, color:'#f59e0b'}}>🔑 CAPTCHA Solver (اختياري)</label>
+                <div style={{ display:'grid', gridTemplateColumns:'2fr 1fr', gap:'8px' }}>
+                  <input type="text" value={captchaApiKey} onChange={(e) => setCaptchaApiKey(e.target.value)} placeholder="API Key من 2Captcha أو CapSolver" style={{...st.input, borderColor: captchaApiKey ? '#f59e0b' : '#166534'}} />
+                  <select value={captchaService} onChange={(e) => setCaptchaService(e.target.value)} style={{...st.input, borderColor:'#f59e0b'}}>
+                    <option value="2captcha">2Captcha</option>
+                    <option value="capsolver">CapSolver</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Setup & Deploy buttons */}
+              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'10px' }}>
+                <button onClick={handleSetup} disabled={loading} style={{...st.btn('#581c87'), opacity: loading ? 0.5 : 1}}>⚙️ تجهيز السيرفرات</button>
+                <button onClick={handleDeploy} disabled={loading} style={{...st.btn('#1e3a5f'), opacity: loading ? 0.5 : 1}}>📤 رفع السكريبت</button>
+              </div>
+            </div>
+          )}
+        </div>
+
         {/* Logs */}
-        <div style={{ marginTop:'24px' }}>
+        <div style={{ marginTop:'16px' }}>
           <div style={{ display:'flex', justifyContent:'space-between', marginBottom:'6px' }}>
             <span style={{ fontSize:'13px', color:'#9ca3af' }}>💻 سجل النظام</span>
             <button onClick={() => setLogs([])} style={{ fontSize:'11px', color:'#6b7280', cursor:'pointer', background:'none', border:'none', fontFamily:ff }}>مسح</button>
