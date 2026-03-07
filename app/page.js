@@ -39,7 +39,16 @@ export default function Home() {
     return 'fanar';
   });
   const [proxyPass, setProxyPass] = useState(() => {
-    if (typeof window !== 'undefined') return localStorage.getItem('proxyPass') || 'j7HGTQiRnys66RIM';
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('proxyPass');
+      // Fix old wrong password (RlM -> RIM)
+      if (saved && saved.includes('RlM')) {
+        const fixed = saved.replace('RlM', 'RIM');
+        localStorage.setItem('proxyPass', fixed);
+        return fixed;
+      }
+      return saved || 'j7HGTQiRnys66RIM';
+    }
     return 'j7HGTQiRnys66RIM';
   });
   const [monitoring, setMonitoring] = useState(false);
