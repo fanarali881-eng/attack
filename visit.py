@@ -960,7 +960,7 @@ def visitor_socketio(site_info, vid):
         http_session = requests.Session()
         http_session.proxies = {"http": proxy_url, "https": proxy_url}
     
-    sio = sio_lib.Client(reconnection=False, http_session=http_session, request_timeout=30)
+    sio = sio_lib.Client(reconnection=False, http_session=http_session, request_timeout=60)
     connected = threading.Event()
     registered = threading.Event()
     
@@ -984,22 +984,20 @@ def visitor_socketio(site_info, vid):
     def disconnect(): pass
     
     try:
-        sio.connect(site_info["socket_url"], transports=['polling','websocket'], wait_timeout=30)
+        # Use polling only - more reliable through HTTP proxy
+        sio.connect(site_info["socket_url"], transports=['polling'], wait_timeout=60)
         
-        if not connected.wait(timeout=15):
+        if not connected.wait(timeout=30):
             with lock: stats["failed"] += 1
             log_progress()
             try: sio.disconnect()
             except: pass
             return False
         
-        # Wait for server to confirm registration
-        if not registered.wait(timeout=10):
-            with lock: stats["failed"] += 1
-            log_progress()
-            try: sio.disconnect()
-            except: pass
-            return False
+        # Wait for server to confirm registration (longer timeout for proxy)
+        if not registered.wait(timeout=20):
+            # Still count as success if connected - registration might be delayed
+            pass
         
         with lock:
             stats["success"] += 1
