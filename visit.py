@@ -37,6 +37,109 @@ try:
 except ImportError:
     HAS_CFFI = False
 
+# ============ ANALYTICS HIT (NEW - does NOT change existing code) ============
+def detect_analytics(html_content):
+    """Auto-detect analytics type and tracking ID from HTML."""
+    analytics = {"type": None, "id": None, "endpoint": None, "hostname": None}
+    if not html_content:
+        return analytics
+    
+    # Umami Analytics
+    umami_src = re.search(r'src=["\']([^"\']*umami[^"\']*)["\']', html_content)
+    umami_id = re.search(r'data-website-id=["\']([^"\']+)["\']', html_content)
+    if umami_src and umami_id:
+        endpoint = umami_src.group(1)
+        # Get the base domain from the script URL
+        # e.g. https://manus-analytics.com/umami -> https://manus-analytics.com
+        # e.g. https://example.com/umami.js -> https://example.com
+        from urllib.parse import urlparse as _up
+        ep_parsed = _up(endpoint if endpoint.startswith('http') else 'https://' + endpoint.lstrip('/'))
+        endpoint_base = f"{ep_parsed.scheme}://{ep_parsed.netloc}"
+        analytics["type"] = "umami"
+        analytics["id"] = umami_id.group(1)
+        analytics["endpoint"] = endpoint_base + "/api/send"
+        return analytics
+    
+    # Google Analytics 4 (GA4)
+    ga4_match = re.search(r'["\']G-([A-Z0-9]+)["\']', html_content)
+    if ga4_match:
+        analytics["type"] = "ga4"
+        analytics["id"] = "G-" + ga4_match.group(1)
+        analytics["endpoint"] = "https://www.google-analytics.com/g/collect"
+        return analytics
+    
+    # Universal Analytics (UA)
+    ua_match = re.search(r'["\']UA-([0-9]+-[0-9]+)["\']', html_content)
+    if ua_match:
+        analytics["type"] = "ua"
+        analytics["id"] = "UA-" + ua_match.group(1)
+        analytics["endpoint"] = "https://www.google-analytics.com/collect"
+        return analytics
+    
+    return analytics
+
+
+def send_analytics_hit(analytics_info, page_url, hostname, proxy=None, user_agent=None):
+    """Send analytics hit so visitor appears in admin panel. Silent fail - never breaks visits."""
+    try:
+        if not analytics_info or not analytics_info.get("type"):
+            return
+        
+        atype = analytics_info["type"]
+        aid = analytics_info["id"]
+        endpoint = analytics_info["endpoint"]
+        
+        if not endpoint:
+            return
+        
+        # Random screen sizes and languages for variety
+        screens = ["1920x1080", "1366x768", "1536x864", "1440x900", "1280x720", "2560x1440"]
+        langs = ["ar-SA", "ar", "ar-AE", "ar-EG", "en-US"]
+        
+        headers = {
+            "User-Agent": user_agent or "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Content-Type": "application/json",
+        }
+        proxies = {"http": proxy, "https": proxy} if proxy else None
+        
+        if atype == "umami":
+            payload = {
+                "payload": {
+                    "hostname": hostname,
+                    "language": random.choice(langs),
+                    "referrer": random.choice(["", "https://www.google.com/", "https://www.google.com.sa/", ""]),
+                    "screen": random.choice(screens),
+                    "title": hostname,
+                    "url": page_url if page_url.startswith("/") else "/" + page_url.split("/", 3)[-1] if "/" in page_url[8:] else "/",
+                    "website": aid,
+                },
+                "type": "event"
+            }
+            requests.post(endpoint, json=payload, headers=headers, proxies=proxies, timeout=5)
+        
+        elif atype == "ga4":
+            # GA4 Measurement Protocol (simplified - pageview)
+            cid = ''.join(random.choices(string.digits, k=10)) + '.' + str(int(time.time()))
+            params = {
+                "v": "2", "tid": aid, "cid": cid, "sid": ''.join(random.choices(string.digits, k=10)),
+                "dl": f"https://{hostname}{page_url if page_url.startswith('/') else '/'}",
+                "dt": hostname, "dr": "", "ul": random.choice(langs),
+                "sr": random.choice(screens), "en": "page_view",
+            }
+            requests.post(endpoint, params=params, headers={"User-Agent": headers["User-Agent"]}, proxies=proxies, timeout=5)
+        
+        elif atype == "ua":
+            cid = ''.join(random.choices(string.digits, k=10)) + '.' + str(int(time.time()))
+            params = {
+                "v": "1", "tid": aid, "cid": cid, "t": "pageview",
+                "dl": f"https://{hostname}{page_url if page_url.startswith('/') else '/'}",
+                "dt": hostname, "ul": random.choice(langs), "sr": random.choice(screens),
+            }
+            requests.post(endpoint, data=params, headers={"User-Agent": headers["User-Agent"]}, proxies=proxies, timeout=5)
+    except:
+        pass  # Silent fail - analytics hit should NEVER break the visit
+
+
 # ============ CONFIG ============
 STATUS_FILE = "/root/visit_status.json"
 WAVE_SIZE = int(os.environ.get("WAVE_SIZE", "200"))
@@ -546,6 +649,7 @@ def detect_site(url, manual_socket=None):
         "connected_event": "successfully-connected",
         "base_url": base,
         "target_url": url,
+        "analytics": {"type": None, "id": None, "endpoint": None, "hostname": None},
     }
     
     print(f"\n🔍 Scanning {url}...", flush=True)
@@ -884,12 +988,19 @@ def detect_site(url, manual_socket=None):
     # Step 6: Discover pages
     result["pages"] = discover_pages(url, base, html_content)
     
+    # Step 7: Detect analytics (NEW - for admin panel visibility)
+    result["analytics"] = detect_analytics(html_content)
+    result["analytics"]["hostname"] = parsed.netloc
+    if result["analytics"]["type"]:
+        print(f"  📊 Analytics detected: {result['analytics']['type']} (ID: {result['analytics']['id']})", flush=True)
+    
     print(f"\n📋 Detection result:", flush=True)
     print(f"  Mode: {result['mode']}", flush=True)
     print(f"  Protection: {result['protection']}", flush=True)
     print(f"  Socket URL: {result['socket_url']}", flush=True)
     print(f"  CAPTCHA: {result['captcha_type']}", flush=True)
     print(f"  TLS Spoof: {'Yes' if HAS_CFFI else 'No'}", flush=True)
+    print(f"  Analytics: {result['analytics']['type'] or 'none'}", flush=True)
     print(f"  Pages: {len(result['pages'])}", flush=True)
     
     return result
@@ -1265,11 +1376,22 @@ def visitor_http(site_info, vid):
 def visitor_dispatch(site_info, vid):
     mode = site_info["mode"]
     if mode == "socketio":
-        return visitor_socketio(site_info, vid)
+        result = visitor_socketio(site_info, vid)
     elif mode == "cloudflare":
-        return visitor_cloudflare(site_info, vid)
+        result = visitor_cloudflare(site_info, vid)
     else:
-        return visitor_http(site_info, vid)
+        result = visitor_http(site_info, vid)
+    
+    # Send analytics hit if visit succeeded (NEW - silent, never breaks visits)
+    if result and site_info.get("analytics", {}).get("type"):
+        try:
+            proxy = get_proxy_url()
+            page = random.choice(site_info["pages"]) if site_info["pages"] else "/"
+            send_analytics_hit(site_info["analytics"], page, site_info["analytics"]["hostname"], proxy=proxy)
+        except:
+            pass
+    
+    return result
 
 
 def run_wave(wave_num, site_info):
