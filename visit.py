@@ -68,6 +68,24 @@ def detect_analytics(html_content):
         analytics["endpoint"] = "https://www.google-analytics.com/g/collect"
         return analytics
     
+    # Google Tag Manager (GTM) - extract GA4 ID from GTM container
+    gtm_match = re.search(r'googletagmanager\.com/gtag/js\?id=(G-[A-Z0-9]+)', html_content)
+    if not gtm_match:
+        gtm_match = re.search(r'googletagmanager\.com/gtag/js\?id=(GTM-[A-Z0-9]+)', html_content)
+    if gtm_match:
+        tid = gtm_match.group(1)
+        if tid.startswith('G-'):
+            analytics["type"] = "ga4"
+            analytics["id"] = tid
+            analytics["endpoint"] = "https://www.google-analytics.com/g/collect"
+            return analytics
+        elif tid.startswith('GTM-'):
+            # GTM container - send hit to GA4 endpoint using GTM ID as fallback
+            analytics["type"] = "gtm"
+            analytics["id"] = tid
+            analytics["endpoint"] = "https://www.google-analytics.com/g/collect"
+            return analytics
+    
     # Universal Analytics (UA)
     ua_match = re.search(r'["\']UA-([0-9]+-[0-9]+)["\']', html_content)
     if ua_match:
@@ -142,6 +160,29 @@ def send_analytics_hit(analytics_info, page_url, hostname, proxy=None, user_agen
                 "_nsi": "1",
                 "_fv": "1",
                 "_ee": "1",
+                "tfd": str(random.randint(50, 500)),
+            }
+            ga_headers = {
+                "User-Agent": headers["User-Agent"],
+                "Origin": f"https://{hostname}",
+                "Referer": full_url,
+            }
+            requests.post(endpoint, params=params, headers=ga_headers, proxies=proxies, timeout=5)
+        
+        elif atype == "gtm":
+            # GTM - send same format as GA4 hit
+            cid = ''.join(random.choices(string.digits, k=10)) + '.' + str(int(time.time()))
+            sid = ''.join(random.choices(string.digits, k=10))
+            page_path = page_url if page_url.startswith('/') else '/'
+            full_url = f"https://{hostname}{page_path}"
+            referrers = ["", "https://www.google.com/", "https://www.google.com.sa/", "https://www.google.ae/", ""]
+            params = {
+                "v": "2", "tid": aid, "cid": cid, "sid": sid,
+                "_p": ''.join(random.choices(string.digits, k=9)),
+                "dl": full_url, "dt": hostname, "dr": random.choice(referrers),
+                "ul": random.choice(langs), "sr": random.choice(screens),
+                "en": "page_view", "_s": "1", "seg": "1", "_ss": "1",
+                "_nsi": "1", "_fv": "1", "_ee": "1",
                 "tfd": str(random.randint(50, 500)),
             }
             ga_headers = {
