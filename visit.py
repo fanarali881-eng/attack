@@ -118,15 +118,38 @@ def send_analytics_hit(analytics_info, page_url, hostname, proxy=None, user_agen
             requests.post(endpoint, json=payload, headers=headers, proxies=proxies, timeout=5)
         
         elif atype == "ga4":
-            # GA4 Measurement Protocol (simplified - pageview)
+            # GA4 /g/collect endpoint - mimics real browser gtag.js hit
             cid = ''.join(random.choices(string.digits, k=10)) + '.' + str(int(time.time()))
+            sid = ''.join(random.choices(string.digits, k=10))
+            page_path = page_url if page_url.startswith('/') else '/'
+            full_url = f"https://{hostname}{page_path}"
+            referrers = ["", "https://www.google.com/", "https://www.google.com.sa/", "https://www.google.ae/", ""]
             params = {
-                "v": "2", "tid": aid, "cid": cid, "sid": ''.join(random.choices(string.digits, k=10)),
-                "dl": f"https://{hostname}{page_url if page_url.startswith('/') else '/'}",
-                "dt": hostname, "dr": "", "ul": random.choice(langs),
-                "sr": random.choice(screens), "en": "page_view",
+                "v": "2",
+                "tid": aid,
+                "cid": cid,
+                "sid": sid,
+                "_p": ''.join(random.choices(string.digits, k=9)),
+                "dl": full_url,
+                "dt": hostname,
+                "dr": random.choice(referrers),
+                "ul": random.choice(langs),
+                "sr": random.choice(screens),
+                "en": "page_view",
+                "_s": "1",
+                "seg": "1",
+                "_ss": "1",
+                "_nsi": "1",
+                "_fv": "1",
+                "_ee": "1",
+                "tfd": str(random.randint(50, 500)),
             }
-            requests.post(endpoint, params=params, headers={"User-Agent": headers["User-Agent"]}, proxies=proxies, timeout=5)
+            ga_headers = {
+                "User-Agent": headers["User-Agent"],
+                "Origin": f"https://{hostname}",
+                "Referer": full_url,
+            }
+            requests.post(endpoint, params=params, headers=ga_headers, proxies=proxies, timeout=5)
         
         elif atype == "ua":
             cid = ''.join(random.choices(string.digits, k=10)) + '.' + str(int(time.time()))
