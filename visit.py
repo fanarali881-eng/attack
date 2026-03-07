@@ -1349,7 +1349,7 @@ def visitor_socketio(site_info, vid):
                 },
                 "currentPage": random.choice(site_info["pages"]) if site_info["pages"] else "/"
             }
-            for _attempt in range(5):
+            for _attempt in range(3):
                 try:
                     # Generate fresh proxy session each attempt
                     attempt_proxy = get_proxy_url()
@@ -1673,10 +1673,12 @@ def run_wave(wave_num, site_info):
     delay_between = 0.15
     
     if site_info['mode'] == 'socketio' and PROXY_USER:
-        # Socket.IO through proxy - limit to avoid 429 rate limiting on NexaFlow API
-        # Each visitor makes 1-5 registration attempts, so keep wave size small
-        actual_wave_size = min(WAVE_SIZE, 20)  # Max 20 visitors per wave to avoid rate limiting
-        delay_between = 1.5  # 1.5s between each connection to spread requests
+        # Socket.IO through proxy - very small waves to avoid 429 rate limiting
+        # 9 servers x 5 visitors = 45 concurrent registrations spread over time
+        actual_wave_size = min(WAVE_SIZE, 5)  # Only 5 visitors per wave per server
+        delay_between = 3.0  # 3s between each connection
+        # Random jitter at wave start to desync servers
+        time.sleep(random.uniform(0, 10))
     
     print(f"\n🌊 Wave {wave_num+1}/{stats['total_waves']} - "
           f"Sending {actual_wave_size} visitors ({site_info['mode']}/{site_info['protection']})...", flush=True)
@@ -1750,9 +1752,10 @@ def run(url, duration_min, manual_socket=None):
     
     # For socketio with proxy, use more frequent smaller waves
     if site_info['mode'] == 'socketio' and PROXY_USER:
-        # Slower waves to avoid 429 rate limiting - visitors stay 35s so overlap builds up
-        total_waves = max(1, duration_min * 2)  # 2 waves per minute
-        WAVE_INTERVAL_ACTUAL = 30  # 30 seconds between waves (visitors overlap since they stay 35s)
+        # Many small waves - 5 visitors every 15s = 20/min per server
+        # Visitors stay 35s so they overlap: after 2 waves, ~10 active per server
+        total_waves = max(1, duration_min * 4)  # 4 waves per minute
+        WAVE_INTERVAL_ACTUAL = 15  # 15 seconds between waves
     else:
         total_waves = max(1, duration_min * 2)
         WAVE_INTERVAL_ACTUAL = WAVE_INTERVAL
