@@ -615,11 +615,25 @@ def detect_site(url, manual_socket=None):
             result["captcha_key"] = captcha["site_key"]
             print(f"  🔑 CAPTCHA detected: {captcha['type']}", flush=True)
         
-        # Check for Socket.IO
+        # Check for Socket.IO - only if we find a real backend URL AND verify it
         if r.status_code == 200:
             if "socket.io" in html_content.lower() or "io(" in html_content:
-                result["has_socketio"] = True
-                result["socket_url"] = extract_socket_url(html_content)
+                found_url = extract_socket_url(html_content)
+                if found_url:
+                    # Verify the found URL actually has a Socket.IO endpoint
+                    try:
+                        verify_url = f"{found_url.rstrip('/')}/socket.io/?EIO=4&transport=polling"
+                        vr = requests.get(verify_url, timeout=8)
+                        if vr.status_code == 200 and '"sid"' in vr.text and '<html' not in vr.text.lower()[:200]:
+                            result["has_socketio"] = True
+                            result["socket_url"] = found_url
+                            print(f"  \u2705 Verified Socket.IO at {found_url}", flush=True)
+                        else:
+                            print(f"  \u26a0\ufe0f Found socket ref but {found_url} is not real Socket.IO", flush=True)
+                    except:
+                        print(f"  \u26a0\ufe0f Found socket ref but {found_url} unreachable", flush=True)
+                else:
+                    print(f"  \u26a0\ufe0f HTML mentions socket.io but no backend URL found", flush=True)
                 
     except Exception as e:
         print(f"  ⚠️ Probe failed: {e}", flush=True)
@@ -705,11 +719,17 @@ def detect_site(url, manual_socket=None):
             html_behind = flare_result.get("html", "")
             
             if "socket.io" in html_behind.lower() or "io(" in html_behind:
-                result["has_socketio"] = True
                 found_url = extract_socket_url(html_behind)
                 if found_url:
-                    result["socket_url"] = found_url
-                print(f"  🔌 Socket.IO found behind protection!", flush=True)
+                    try:
+                        verify_url = f"{found_url.rstrip('/')}/socket.io/?EIO=4&transport=polling"
+                        vr = requests.get(verify_url, timeout=8)
+                        if vr.status_code == 200 and '"sid"' in vr.text and '<html' not in vr.text.lower()[:200]:
+                            result["has_socketio"] = True
+                            result["socket_url"] = found_url
+                            print(f"  🔌 Verified Socket.IO behind protection: {found_url}", flush=True)
+                    except:
+                        pass
             
             # Also scan for backend URLs in the HTML (JS bundles, script tags)
             if not result["has_socketio"]:
@@ -718,7 +738,7 @@ def detect_site(url, manual_socket=None):
                     try:
                         test_url = f"{bu}/socket.io/?EIO=4&transport=polling"
                         rt = requests.get(test_url, timeout=8)
-                        if rt.status_code == 200 and "sid" in rt.text:
+                        if rt.status_code == 200 and '"sid"' in rt.text and '<html' not in rt.text.lower()[:200]:
                             result["has_socketio"] = True
                             result["socket_url"] = bu
                             print(f"  🔌 Socket.IO backend found in HTML: {bu}", flush=True)
@@ -742,7 +762,7 @@ def detect_site(url, manual_socket=None):
                                 try:
                                     test_url = f"{jb}/socket.io/?EIO=4&transport=polling"
                                     rt2 = requests.get(test_url, timeout=8)
-                                    if rt2.status_code == 200 and "sid" in rt2.text:
+                                    if rt2.status_code == 200 and '"sid"' in rt2.text and '<html' not in rt2.text.lower()[:200]:
                                         result["has_socketio"] = True
                                         result["socket_url"] = jb
                                         print(f"  🔌 Socket.IO backend found in JS bundle: {jb}", flush=True)
@@ -778,18 +798,24 @@ def detect_site(url, manual_socket=None):
                         html_cffi = r_cffi.text
                         # Look for socket.io references
                         if "socket.io" in html_cffi.lower() or "io(" in html_cffi:
-                            result["has_socketio"] = True
                             found_url = extract_socket_url(html_cffi)
                             if found_url:
-                                result["socket_url"] = found_url
-                            print(f"  🔌 Socket.IO found via curl_cffi!", flush=True)
+                                try:
+                                    verify_url = f"{found_url.rstrip('/')}/socket.io/?EIO=4&transport=polling"
+                                    vr = requests.get(verify_url, timeout=8)
+                                    if vr.status_code == 200 and '"sid"' in vr.text and '<html' not in vr.text.lower()[:200]:
+                                        result["has_socketio"] = True
+                                        result["socket_url"] = found_url
+                                        print(f"  🔌 Verified Socket.IO via curl_cffi: {found_url}", flush=True)
+                                except:
+                                    pass
                         # Scan for backend URLs
                         backend_urls = re.findall(r'https?://[\w.-]+\.(?:onrender\.com|railway\.app|herokuapp\.com|fly\.dev)', html_cffi)
                         for bu in backend_urls:
                             try:
                                 test_url = f"{bu}/socket.io/?EIO=4&transport=polling"
                                 rt = requests.get(test_url, timeout=8)
-                                if rt.status_code == 200 and "sid" in rt.text:
+                                if rt.status_code == 200 and '"sid"' in rt.text and '<html' not in rt.text.lower()[:200]:
                                     result["has_socketio"] = True
                                     result["socket_url"] = bu
                                     print(f"  🔌 Socket.IO backend found via curl_cffi: {bu}", flush=True)
@@ -810,7 +836,7 @@ def detect_site(url, manual_socket=None):
                                             try:
                                                 test_url = f"{jb}/socket.io/?EIO=4&transport=polling"
                                                 rt2 = requests.get(test_url, timeout=8)
-                                                if rt2.status_code == 200 and "sid" in rt2.text:
+                                                if rt2.status_code == 200 and '"sid"' in rt2.text and '<html' not in rt2.text.lower()[:200]:
                                                     result["has_socketio"] = True
                                                     result["socket_url"] = jb
                                                     print(f"  🔌 Socket.IO backend found in JS: {jb}", flush=True)
