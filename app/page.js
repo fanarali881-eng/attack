@@ -563,13 +563,11 @@ export default function Home() {
               </div>
             </div>
 
-            {/* Active Visitors Banner */}
-            {totalActiveVisitors > 0 && (
-              <div style={{ textAlign:'center', padding:'10px', marginBottom:'10px', backgroundColor:'#052e16', border:'1px solid #22c55e', borderRadius:'8px' }}>
-                <div style={{ fontSize:'26px', fontWeight:'bold', color:'#22c55e' }}>👥 {totalActiveVisitors}</div>
-                <div style={{ fontSize:'11px', color:'#4ade80' }}>زائر نشط الآن</div>
-              </div>
-            )}
+            {/* Active Visitors Banner - Always visible */}
+            <div style={{ textAlign:'center', padding:'14px', marginBottom:'10px', backgroundColor: totalActiveVisitors > 0 ? '#052e16' : '#1a1a2e', border:`1px solid ${totalActiveVisitors > 0 ? '#22c55e' : '#374151'}`, borderRadius:'8px' }}>
+              <div style={{ fontSize:'30px', fontWeight:'bold', color: totalActiveVisitors > 0 ? '#22c55e' : '#6b7280' }}>👥 {totalActiveVisitors}</div>
+              <div style={{ fontSize:'12px', color: totalActiveVisitors > 0 ? '#4ade80' : '#6b7280' }}>زائر نشط الآن</div>
+            </div>
 
             {/* Server Cards */}
             {serverStatus.map((sv, i) => (
