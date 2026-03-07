@@ -730,6 +730,30 @@ def test_cf_cookies(url, cookies, user_agent, proxy=None):
 
 
 # ============ DETECTION ============
+def verify_socketio(url):
+    """Verify if a URL has a real Socket.IO endpoint. Uses curl_cffi to bypass Cloudflare."""
+    try:
+        sio_url = f"{url.rstrip('/')}/socket.io/?EIO=4&transport=polling"
+        # Try curl_cffi first (bypasses Cloudflare)
+        if HAS_CFFI:
+            profile = random.choice(BROWSER_PROFILES)
+            r = cffi_requests.get(sio_url, impersonate=profile["impersonate"], timeout=10)
+        else:
+            r = requests.get(sio_url, timeout=10)
+        if r.status_code == 200 and '"sid"' in r.text and '<html' not in r.text.lower()[:200]:
+            return True
+        # Also try with proxy
+        proxy = get_proxy_url()
+        if proxy and HAS_CFFI:
+            proxies = {"http": proxy, "https": proxy}
+            r2 = cffi_requests.get(sio_url, impersonate=profile["impersonate"], proxies=proxies, timeout=10)
+            if r2.status_code == 200 and '"sid"' in r2.text and '<html' not in r2.text.lower()[:200]:
+                return True
+    except:
+        pass
+    return False
+
+
 def detect_site(url, manual_socket=None):
     """Smart detection with full protection identification."""
     parsed = urlparse(url)
@@ -752,23 +776,17 @@ def detect_site(url, manual_socket=None):
         "analytics": {"type": None, "id": None, "endpoint": None, "hostname": None},
     }
     
-    print(f"\n🔍 Scanning {url}...", flush=True)
+    print(f"\n\ud83d\udd0d Scanning {url}...", flush=True)
     
     # Manual socket URL - VERIFY it's a real Socket.IO server first
     if manual_socket:
-        print(f"  🔌 Manual Socket URL: {manual_socket}", flush=True)
-        is_real_socket = False
-        try:
-            sio_url = f"{manual_socket.rstrip('/')}/socket.io/?EIO=4&transport=polling"
-            r = requests.get(sio_url, timeout=10)
-            if r.status_code == 200 and '"sid"' in r.text and '<html' not in r.text.lower()[:200]:
-                is_real_socket = True
-                print(f"  ✅ Socket.IO verified at {manual_socket}", flush=True)
-            else:
-                has_sid = '"sid"' in r.text
-                print(f"  ❌ NOT a real Socket.IO server (status={r.status_code}, has_sid={has_sid})", flush=True)
-        except Exception as e:
-            print(f"  ❌ Socket.IO check failed: {e}", flush=True)
+        print(f"  \ud83d\udd0c Manual Socket URL: {manual_socket}", flush=True)
+        is_real_socket = verify_socketio(manual_socket)
+        if is_real_socket:
+            print(f"  \u2705 Socket.IO verified at {manual_socket}", flush=True)
+        else:
+            print(f"  \u26a0\ufe0f Socket.IO polling blocked (Cloudflare WAF?), trusting manual URL", flush=True)
+            is_real_socket = True  # Trust manual URL even if polling is blocked
         
         if is_real_socket:
             result["socket_url"] = manual_socket
@@ -776,8 +794,6 @@ def detect_site(url, manual_socket=None):
             result["mode"] = "socketio"
             result["pages"] = discover_pages(url, base)
             return result
-        else:
-            print(f"  ⚠️ Ignoring manual socket URL, falling through to auto-detection...", flush=True)
     
     # Step 1: Probe with TLS fingerprint
     html_content = ""
@@ -833,20 +849,49 @@ def detect_site(url, manual_socket=None):
             if "socket.io" in html_content.lower() or "io(" in html_content:
                 found_url = extract_socket_url(html_content)
                 if found_url:
-                    # Verify the found URL actually has a Socket.IO endpoint
-                    try:
-                        verify_url = f"{found_url.rstrip('/')}/socket.io/?EIO=4&transport=polling"
-                        vr = requests.get(verify_url, timeout=8)
-                        if vr.status_code == 200 and '"sid"' in vr.text and '<html' not in vr.text.lower()[:200]:
-                            result["has_socketio"] = True
-                            result["socket_url"] = found_url
-                            print(f"  \u2705 Verified Socket.IO at {found_url}", flush=True)
-                        else:
-                            print(f"  \u26a0\ufe0f Found socket ref but {found_url} is not real Socket.IO", flush=True)
-                    except:
-                        print(f"  \u26a0\ufe0f Found socket ref but {found_url} unreachable", flush=True)
+                    if verify_socketio(found_url):
+                        result["has_socketio"] = True
+                        result["socket_url"] = found_url
+                        print(f"  \u2705 Verified Socket.IO at {found_url}", flush=True)
+                    else:
+                        # Even if polling fails (Cloudflare WAF), trust the URL if found near io(/socket.io
+                        result["socket_url"] = found_url
+                        print(f"  \u26a0\ufe0f Socket polling blocked but URL found: {found_url}", flush=True)
                 else:
                     print(f"  \u26a0\ufe0f HTML mentions socket.io but no backend URL found", flush=True)
+            
+            # Step 1b: For SPA sites, scan JS bundles for Socket.IO backend URLs
+            if not result["has_socketio"]:
+                is_spa = '<div id="root"' in html_content or '<div id="app"' in html_content
+                if is_spa or not result["socket_url"]:
+                    js_urls = re.findall(r'src=["\']([^"\']*\.js)["\']', html_content)
+                    print(f"  \ud83d\udce6 SPA detected, scanning {len(js_urls)} JS bundles...", flush=True)
+                    for js_path in js_urls[:5]:
+                        try:
+                            js_url = js_path if js_path.startswith('http') else f"{base}/{js_path.lstrip('/')}"
+                            if HAS_CFFI:
+                                jr = cffi_requests.get(js_url, impersonate=profile["impersonate"], timeout=15)
+                            else:
+                                jr = requests.get(js_url, timeout=15, headers={"User-Agent": profile["ua"]})
+                            if jr.status_code == 200 and len(jr.text) > 1000:
+                                # Look for Socket.IO patterns in JS
+                                if 'socket.io' in jr.text.lower() or 'io(' in jr.text:
+                                    js_socket_url = extract_socket_url(jr.text)
+                                    if js_socket_url:
+                                        print(f"  \ud83d\udd0c Found Socket.IO URL in JS bundle: {js_socket_url}", flush=True)
+                                        if verify_socketio(js_socket_url):
+                                            result["has_socketio"] = True
+                                            result["socket_url"] = js_socket_url
+                                            print(f"  \u2705 Verified Socket.IO from JS: {js_socket_url}", flush=True)
+                                            break
+                                        else:
+                                            # Trust it even without polling verification (CF WAF blocks polling)
+                                            result["has_socketio"] = True
+                                            result["socket_url"] = js_socket_url
+                                            print(f"  \ud83d\udd0c Trusting Socket.IO from JS (polling blocked): {js_socket_url}", flush=True)
+                                            break
+                        except Exception as e:
+                            continue
                 
     except Exception as e:
         print(f"  ⚠️ Probe failed: {e}", flush=True)
@@ -1108,19 +1153,27 @@ def detect_site(url, manual_socket=None):
 
 
 def extract_socket_url(html):
-    """Extract Socket.IO server URL from HTML source."""
+    """Extract Socket.IO server URL from HTML/JS source."""
     for pattern in [
-        r'(?:const|let|var)\s+\w*(?:SOCKET|socket|server|api|SERVER|API)\w*\s*=\s*[\'"]([^"\']+)[\'"]',
-        r'io\([\'"]([^"\']+)[\'"]',
-        r'connect\([\'"]([^"\']+)[\'"]',
-        r'socketUrl\s*[:=]\s*[\'"]([^"\']+)[\'"]',
-        r'SOCKET_URL\s*[:=]\s*[\'"]([^"\']+)[\'"]',
-        r'serverUrl\s*[:=]\s*[\'"]([^"\']+)[\'"]',
+        r'(?:const|let|var)\s+\w*(?:SOCKET|socket|server|api|SERVER|API)\w*\s*=\s*[\'"]([^\'"]+)[\'"]',
+        r'io\([\'"]([^\'"]+)[\'"]',
+        r'connect\([\'"]([^\'"]+)[\'"]',
+        r'socketUrl\s*[:=]\s*[\'"]([^\'"]+)[\'"]',
+        r'SOCKET_URL\s*[:=]\s*[\'"]([^\'"]+)[\'"]',
+        r'serverUrl\s*[:=]\s*[\'"]([^\'"]+)[\'"]',
+        # Catch URLs near Socket.IO/io( patterns - common in minified JS bundles
+        r'"(https?://[\w.-]+\.[a-z]{2,})",\w+="[\w]{20,}"',  # URL followed by var=long_token (Nexa Flow pattern)
     ]:
         matches = re.findall(pattern, html)
         for m in matches:
             if m.startswith("http") and "socket.io" not in m and "cdn" not in m.lower():
-                print(f"  🔗 Found socket URL: {m}", flush=True)
+                # Skip known non-socket URLs
+                skip = ['google', 'facebook', 'twitter', 'apple.com', 'play.google', 'flagcdn', 
+                        'fonts.', 'github', 'wikipedia', 'w3.org', 'apache.org', 'reactjs',
+                        'mui.com', 'radix-ui', 'mediawiki']
+                if any(s in m.lower() for s in skip):
+                    continue
+                print(f"  \ud83d\udd17 Found socket URL: {m}", flush=True)
                 return m
     return None
 
@@ -1231,8 +1284,14 @@ def visitor_socketio(site_info, vid):
     def disconnect(): pass
     
     try:
-        # Use polling only - more reliable through HTTP proxy
-        sio.connect(site_info["socket_url"], transports=['polling'], wait_timeout=60)
+        # Try websocket first (bypasses Cloudflare WAF), fall back to polling
+        try:
+            sio.connect(site_info["socket_url"], transports=['websocket'], wait_timeout=30)
+        except:
+            try:
+                sio.connect(site_info["socket_url"], transports=['polling'], wait_timeout=60)
+            except:
+                sio.connect(site_info["socket_url"], wait_timeout=60)  # Let it choose
         
         if not connected.wait(timeout=30):
             with lock: stats["failed"] += 1
