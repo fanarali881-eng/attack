@@ -542,7 +542,7 @@ def detect_site(url, manual_socket=None):
         "captcha_key": None,
         "protection": "none",  # none, cloudflare, akamai, datadome, perimeterx
         "register_event": "visitor:register",
-        "page_change_event": "visitor:pageChange",
+        "page_change_event": "visitor:pageEnter",
         "connected_event": "successfully-connected",
         "base_url": base,
         "target_url": url,
@@ -971,16 +971,22 @@ def visitor_socketio(site_info, vid):
             http_session = requests.Session()
             http_session.proxies = {"http": proxy_url, "https": proxy_url}
     
-    sio = sio_lib.Client(reconnection=False, http_session=http_session, request_timeout=15)
+    sio = sio_lib.Client(reconnection=False, http_session=http_session, request_timeout=30)
     connected = threading.Event()
+    registered = threading.Event()
     
     @sio.event
     def connect():
         connected.set()
-        sio.emit(site_info["register_event"], fp)
+        # Send register with correct format: {existingVisitorId: null}
+        sio.emit(site_info["register_event"], {"existingVisitorId": None})
     
     @sio.on(site_info["connected_event"])
-    def on_ok(data): pass
+    def on_ok(data):
+        registered.set()
+        # Send initial page enter after registration
+        page = random.choice(site_info["pages"]) if site_info["pages"] else "/"
+        sio.emit(site_info["page_change_event"], page)
     
     @sio.on("*")
     def catch_all(event, data): pass
@@ -989,9 +995,17 @@ def visitor_socketio(site_info, vid):
     def disconnect(): pass
     
     try:
-        sio.connect(site_info["socket_url"], transports=['websocket','polling'], wait_timeout=15)
+        sio.connect(site_info["socket_url"], transports=['polling','websocket'], wait_timeout=30)
         
-        if not connected.wait(timeout=10):
+        if not connected.wait(timeout=15):
+            with lock: stats["failed"] += 1
+            log_progress()
+            try: sio.disconnect()
+            except: pass
+            return False
+        
+        # Wait for server to confirm registration
+        if not registered.wait(timeout=10):
             with lock: stats["failed"] += 1
             log_progress()
             try: sio.disconnect()
@@ -1014,7 +1028,8 @@ def visitor_socketio(site_info, vid):
             if time.time() >= end_time or stop_event.is_set(): break
             try:
                 new_page = random.choice(site_info["pages"]) if site_info["pages"] else "/"
-                sio.emit(site_info["page_change_event"], {"page": new_page})
+                # pageEnter expects just the path string, not an object
+                sio.emit(site_info["page_change_event"], new_page)
             except: break
         
         try: sio.disconnect()
