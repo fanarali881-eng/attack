@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 export default function Home() {
   const [url, setUrl] = useState('');
   const [durationMin, setDurationMin] = useState('5');
-  const [waveSize, setWaveSize] = useState('60');
+  const [waveSize, setWaveSize] = useState('200');
   const [stayTime, setStayTime] = useState('35');
   const [logs, setLogs] = useState([]);
   const [loading, setLoading] = useState(false);

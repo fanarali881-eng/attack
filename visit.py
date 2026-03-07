@@ -19,7 +19,7 @@ from urllib.parse import urlparse
 
 # ============ CONFIG ============
 STATUS_FILE = "/root/visit_status.json"
-WAVE_SIZE = int(os.environ.get("WAVE_SIZE", "60"))
+WAVE_SIZE = int(os.environ.get("WAVE_SIZE", "200"))
 WAVE_INTERVAL = int(os.environ.get("WAVE_INTERVAL", "30"))
 STAY_TIME = int(os.environ.get("STAY_TIME", "35"))
 
