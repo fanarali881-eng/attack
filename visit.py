@@ -257,6 +257,7 @@ stats = {
     "success":0,"failed":0,"start_time":0,"target":0,
     "active_visitors":0,"waves_done":0,"total_waves":0,
     "duration_min":0,"mode":"detecting","unique_ips":0,"peak_active":0,
+    "error_reasons":{},
 }
 lock = threading.Lock()
 stop_event = threading.Event()
@@ -372,18 +373,22 @@ def write_status():
             },f)
     except: pass
 
-def log_progress():
+def log_progress(fail_reason=""):
     with lock:
+        if fail_reason:
+            stats["error_reasons"][fail_reason] = stats["error_reasons"].get(fail_reason, 0) + 1
         total = stats["success"]+stats["failed"]
         if total % 10 == 0 or total <= 5:
             e = time.time()-stats["start_time"]
             r = stats["success"]/e*60 if e>0 else 0
             write_status()
+            err_str = " | ".join(f"{k}:{v}" for k,v in sorted(stats["error_reasons"].items(), key=lambda x:-x[1])[:5])
             print(f"  [W{stats['waves_done']}/{stats['total_waves']}] "
                   f"✅{stats['success']} ❌{stats['failed']} | "
                   f"{r:.0f}/min | 👥{stats['active_visitors']} active "
                   f"(peak:{stats['peak_active']}) | "
-                  f"🌍{stats['unique_ips']} IPs | mode:{stats['mode']}", flush=True)
+                  f"🌍{stats['unique_ips']} IPs | mode:{stats['mode']}"
+                  f"{' | ERR: ' + err_str if err_str else ''}", flush=True)
 
 
 # ============ CAPTCHA SOLVER ============
@@ -1349,7 +1354,8 @@ def visitor_socketio(site_info, vid):
                 },
                 "currentPage": random.choice(site_info["pages"]) if site_info["pages"] else "/"
             }
-            for _attempt in range(3):
+            last_fail_reason = ""
+            for _attempt in range(5):
                 try:
                     # Generate fresh proxy session each attempt
                     attempt_proxy = get_proxy_url()
@@ -1369,8 +1375,17 @@ def visitor_socketio(site_info, vid):
                             proxies=reg_proxies_dict
                         )
                     if reg_r.status_code == 429:
-                        # Rate limited - wait before retrying
-                        time.sleep(random.uniform(3, 6))
+                        last_fail_reason = "429"
+                        # Rate limited - exponential backoff
+                        time.sleep(random.uniform(2 + _attempt * 2, 4 + _attempt * 3))
+                        continue
+                    if reg_r.status_code == 403:
+                        last_fail_reason = "403"
+                        time.sleep(random.uniform(1, 3))
+                        continue
+                    if reg_r.status_code >= 500:
+                        last_fail_reason = f"{reg_r.status_code}"
+                        time.sleep(random.uniform(2, 5))
                         continue
                     if reg_r.status_code in [200, 201]:
                         reg_data = reg_r.json()
@@ -1378,6 +1393,7 @@ def visitor_socketio(site_info, vid):
                         materials = reg_data.get("materials", {})
                         ip_country = materials.get("country", "")
                         if ip_country != "SA":
+                            last_fail_reason = f"country:{ip_country or 'none'}"
                             # Not Saudi IP or unknown country, try another proxy session
                             continue
                         visitor_jwt = reg_data.get("token")
@@ -1386,15 +1402,18 @@ def visitor_socketio(site_info, vid):
                         if proxy_url and http_session:
                             http_session.proxies = {"http": proxy_url, "https": proxy_url}
                         break
-                except:
-                    pass
+                    else:
+                        last_fail_reason = f"http:{reg_r.status_code}"
+                except Exception as e:
+                    last_fail_reason = f"err:{type(e).__name__}"
+                    time.sleep(random.uniform(1, 3))
             
             if visitor_jwt:
                 auth_dict = {"nf-api-key": site_info["socket_token"], "token": visitor_jwt}
             else:
                 # No JWT = cannot authenticate, skip this visitor
                 with lock: stats["failed"] += 1
-                log_progress()
+                log_progress(last_fail_reason or "no_jwt")
                 return False
         
         # Connect via websocket (bypasses Cloudflare WAF)
@@ -1407,7 +1426,7 @@ def visitor_socketio(site_info, vid):
         # Wait for connection (may take a few seconds due to initial drop + reconnect)
         if not connected.wait(timeout=20):
             with lock: stats["failed"] += 1
-            log_progress()
+            log_progress("ws_timeout")
             try: sio.disconnect()
             except: pass
             return False
@@ -1445,7 +1464,7 @@ def visitor_socketio(site_info, vid):
         
     except Exception as e:
         with lock: stats["failed"] += 1
-        log_progress()
+        log_progress(f"exception:{type(e).__name__}")
         try: sio.disconnect()
         except: pass
         return False
