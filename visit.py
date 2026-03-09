@@ -1937,6 +1937,19 @@ def run(url, duration_min, manual_socket=None):
     
     # Detect site
     site_info = detect_site(url, manual_socket=manual_socket)
+    
+    # Override mode if FORCE_MODE is set (from Vercel scan result)
+    force_mode = os.environ.get('FORCE_MODE', '').lower()
+    if force_mode in ('browser', 'socketio', 'cloudflare', 'http'):
+        print(f"  [OVERRIDE] Mode forced from panel: {site_info['mode']} -> {force_mode}", flush=True)
+        site_info['mode'] = force_mode
+    
+    # Override protection if FORCE_PROTECTION is set
+    force_prot = os.environ.get('FORCE_PROTECTION', '').lower()
+    if force_prot:
+        print(f"  [OVERRIDE] Protection forced from panel: {site_info['protection']} -> {force_prot}", flush=True)
+        site_info['protection'] = force_prot
+    
     stats["mode"] = f"{site_info['mode']}/{site_info['protection']}"
     
     # Install socketio if needed

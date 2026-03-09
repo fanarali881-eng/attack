@@ -320,7 +320,9 @@ export default function Home() {
           proxies: buildProxyList(),
           socketUrl: effectiveSocketUrl,
           captchaApiKey: captchaApiKey || undefined,
-          captchaService: captchaService || undefined
+          captchaService: captchaService || undefined,
+          forceMode: detectedScanResult?.mode || undefined,
+          forceProtection: detectedScanResult?.protection || undefined
         })
       });
       const data = await res.json();

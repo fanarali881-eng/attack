@@ -100,7 +100,7 @@ export async function POST(req) {
   }
 
   try {
-    const { action, url, durationMin, servers, proxies, waveSize, stayTime, socketUrl, captchaApiKey, captchaService } = await req.json();
+    const { action, url, durationMin, servers, proxies, waveSize, stayTime, socketUrl, captchaApiKey, captchaService, forceMode, forceProtection } = await req.json();
     const serverList = (servers && servers.length > 0) ? servers : DEFAULT_SERVERS;
 
     if (action === 'setup') {
@@ -153,6 +153,8 @@ export async function POST(req) {
             (socketUrl ? `SOCKET_URL='${socketUrl.replace(/'/g, '')}' ` : '') +
             (captchaApiKey ? `CAPTCHA_API_KEY='${captchaApiKey.replace(/'/g, '')}' ` : '') +
             (captchaService ? `CAPTCHA_SERVICE='${captchaService.replace(/'/g, '')}' ` : '') +
+            (forceMode ? `FORCE_MODE='${forceMode.replace(/'/g, '')}' ` : '') +
+            (forceProtection ? `FORCE_PROTECTION='${forceProtection.replace(/'/g, '')}' ` : '') +
             `nohup python3 /root/visit.py '${escapedUrl}' ${safeDuration}` +
             (socketUrl ? ` '${socketUrl.replace(/'/g, '')}'` : '') +
             ` > /root/visit.log 2>&1 & ` +
