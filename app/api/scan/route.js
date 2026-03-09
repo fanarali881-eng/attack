@@ -7,128 +7,16 @@ function validateApiKey(req) {
   return true;
 }
 
-// ============ PROTECTION SIGNATURES DATABASE ============
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║        ULTIMATE PROTECTION SIGNATURES DATABASE v3.0             ║
+// ║        25+ Anti-Bot / WAF / CDN / CAPTCHA Signatures            ║
+// ╚══════════════════════════════════════════════════════════════════╝
+
 const PROTECTION_SIGNATURES = {
-  cloudflare: {
-    name: "Cloudflare",
-    headers: [
-      { key: "server", value: "cloudflare" },
-      { key: "cf-ray", value: null },
-      { key: "cf-cache-status", value: null },
-      { key: "cf-mitigated", value: null },
-      { key: "cf-request-id", value: null },
-    ],
-    cookies: ["__cf_bm", "cf_clearance", "__cflb", "__cfruid", "_cfuvid"],
-    htmlSignals: [
-      "challenges.cloudflare.com", "/cdn-cgi/", "cf-browser-verification",
-      "cf-chl-widget", "cf-challenge-running", "cloudflare-static/",
-    ],
-    challenges: {
-      js_challenge: ["Just a moment", "Checking your browser", "cf-spinner-please-wait"],
-      managed_challenge: ["challenges.cloudflare.com/turnstile", "cf-turnstile"],
-      interactive_captcha: ["cf-hcaptcha-container", "g-recaptcha", "cf-captcha-container"],
-      blocked: ["Sorry, you have been blocked", "Access denied", "Error 1020"],
-    },
-  },
-  akamai: {
-    name: "Akamai Bot Manager",
-    headers: [
-      { key: "server", value: "akamaighost" },
-      { key: "x-akamai-transformed", value: null },
-      { key: "akamai-ghost", value: null },
-      { key: "akamai-request-id", value: null },
-      { key: "x-edgeconnect-midmile-rtt", value: null },
-      { key: "x-akamai-staging", value: null },
-    ],
-    cookies: ["_abck", "ak_bmsc", "bm_sz", "bm_sv", "bm_mi"],
-    htmlSignals: ["akamai", "_abck", "ak_bmsc"],
-    challenges: {
-      sensor_challenge: ["_abck", "sensor_data", "bmak"],
-      blocked: ["Access Denied", "Reference #"],
-    },
-  },
-  perimeterx: {
-    name: "PerimeterX / HUMAN",
-    headers: [{ key: "x-px-", value: null, prefix: true }],
-    cookies: ["_pxvid", "_px2", "_px3", "_pxff_", "_pxmvid", "_pxhd", "pxcts", "_pxde", "_pxttld"],
-    htmlSignals: ["perimeterx.net", "px-cdn.net", "px-cloud.net", "pxchk.net", "px-client.net", "px-captcha"],
-    challenges: {
-      captcha: ["px-captcha", "Press & Hold", "human verification"],
-      blocked: ["blocked by px", "Request blocked"],
-    },
-  },
-  datadome: {
-    name: "DataDome",
-    headers: [
-      { key: "server", value: "datadome" },
-      { key: "x-datadome-cid", value: null },
-      { key: "x-datadome", value: null },
-    ],
-    cookies: ["datadome"],
-    htmlSignals: ["datadome.co", "api-js.datadome.co", "dd.datadome", "window.ddjskey", "DataDome"],
-    challenges: {
-      captcha: ["geo.captcha-delivery.com", "interstitial.datadome"],
-      blocked: ["datadome"],
-    },
-  },
-  imperva: {
-    name: "Imperva / Incapsula",
-    headers: [
-      { key: "x-cdn", value: "imperva" },
-      { key: "x-cdn", value: "incapsula" },
-      { key: "x-iinfo", value: null },
-    ],
-    cookies: ["visid_incap_", "incap_ses_", "__utmvc", "reese84", "nlbi_"],
-    htmlSignals: ["incapsula", "imperva", "_Incapsula_Resource", "reese84"],
-    challenges: {
-      js_challenge: ["_Incapsula_Resource"],
-      blocked: ["Request unsuccessful", "Incapsula incident"],
-    },
-  },
-  sucuri: {
-    name: "Sucuri / CloudProxy",
-    headers: [
-      { key: "server", value: "sucuri" },
-      { key: "server", value: "cloudproxy" },
-      { key: "x-sucuri-id", value: null },
-      { key: "x-sucuri-cache", value: null },
-    ],
-    cookies: ["sucuri_cloudproxy_"],
-    htmlSignals: ["sucuri.net", "cloudproxy", "sucuri_cloudproxy"],
-    challenges: {
-      js_challenge: ["sucuri_cloudproxy_js"],
-      blocked: ["Access Denied - Sucuri", "Sucuri WebSite Firewall"],
-    },
-  },
-  aws_waf: {
-    name: "AWS WAF / CloudFront",
-    headers: [
-      { key: "server", value: "cloudfront" },
-      { key: "x-amz-cf-id", value: null },
-      { key: "x-amz-cf-pop", value: null },
-    ],
-    cookies: ["aws-waf-token", "AWSALB", "AWSALBCORS"],
-    htmlSignals: ["aws-waf", "awswaf"],
-    challenges: {
-      captcha: ["aws_captcha", "awswaf"],
-      blocked: ["Request blocked", "ERROR: The request could not be satisfied"],
-    },
-  },
-  f5: {
-    name: "F5 / Shape Security",
-    headers: [
-      { key: "x-powered-by", value: "f5" },
-      { key: "server", value: "bigip" },
-    ],
-    cookies: ["TSPD_101", "f5_cspm", "f5avraaaaaaa", "MRHSession"],
-    cookieRegex: [/^TS[0-9a-f]{8,}$/i],
-    htmlSignals: ["f5.com", "shape security"],
-    challenges: {
-      blocked: ["The requested URL was rejected"],
-    },
-  },
+  // ─────────── TIER 1: EXTREME DIFFICULTY ───────────
   kasada: {
     name: "Kasada",
+    tier: "extreme",
     headers: [
       { key: "x-kpsdk-ct", value: null },
       { key: "x-kpsdk-cd", value: null },
@@ -136,55 +24,479 @@ const PROTECTION_SIGNATURES = {
     ],
     cookies: ["x-kpsdk-ct", "x-kpsdk-cd", "x-kpsdk-v"],
     htmlSignals: ["ips.js", "_kpsdk", "kasada"],
+    jsSignals: ["ips.js", "kasada", "_kpsdk"],
     challenges: { blocked: ["blocked", "kasada"] },
+  },
+  datadome: {
+    name: "DataDome",
+    tier: "extreme",
+    headers: [
+      { key: "server", value: "datadome" },
+      { key: "x-datadome-cid", value: null },
+      { key: "x-datadome", value: null },
+      { key: "x-dd-b", value: null },
+      { key: "x-dd-type", value: null },
+    ],
+    cookies: ["datadome"],
+    htmlSignals: ["datadome.co", "api-js.datadome.co", "dd.datadome", "window.ddjskey", "DataDome"],
+    jsSignals: ["datadome", "ddjskey", "dd_"],
+    challenges: {
+      captcha: ["geo.captcha-delivery.com", "interstitial.datadome"],
+      blocked: ["datadome"],
+    },
+  },
+  shape_security: {
+    name: "Shape Security (F5)",
+    tier: "extreme",
+    headers: [],
+    headerRegex: [/^x-[a-z0-9]{8}-(a|b|c|d|f|z)$/],
+    cookies: [],
+    cookieRegex: [/^[A-Za-z0-9]{8}$/],
+    htmlSignals: ["shapesecurity", "__xr_bmobdb"],
+    jsSignals: ["shapesecurity", "__xr_bmobdb"],
+    urlSignals: ["?seed="],
+    challenges: { blocked: ["Access Denied"] },
+  },
+
+  // ─────────── TIER 2: HIGH DIFFICULTY ───────────
+  perimeterx: {
+    name: "PerimeterX / HUMAN",
+    tier: "high",
+    headers: [{ key: "x-px-", value: null, prefix: true }],
+    cookies: ["_pxvid", "_px2", "_px3", "_pxff_", "_pxmvid", "_pxhd", "pxcts", "_pxde", "_pxttld"],
+    htmlSignals: ["perimeterx.net", "px-cdn.net", "px-cloud.net", "pxchk.net", "px-client.net", "px-captcha"],
+    jsSignals: ["_pxAppId", "pxInit", "_pxAction", "perimeterx"],
+    challenges: {
+      captcha: ["px-captcha", "Press & Hold", "human verification"],
+      blocked: ["blocked by px", "Request blocked"],
+    },
+  },
+  akamai: {
+    name: "Akamai Bot Manager",
+    tier: "high",
+    headers: [
+      { key: "server", value: "akamaighost" },
+      { key: "server", value: "akamaighostcn" },
+      { key: "x-akamai-transformed", value: null },
+      { key: "akamai-ghost", value: null },
+      { key: "akamai-request-id", value: null },
+      { key: "x-edgeconnect-midmile-rtt", value: null },
+      { key: "x-akamai-staging", value: null },
+      { key: "x-akamai-request-id", value: null },
+    ],
+    cookies: ["_abck", "ak_bmsc", "bm_sz", "bm_sv", "bm_mi", "bm_so", "bm_s"],
+    htmlSignals: ["akamai", "_abck", "ak_bmsc", "bmak.", "sensor_data"],
+    jsSignals: ["bmak", "sensor_data", "_abck", "ak_bmsc", "bazadebezolkohpepadr"],
+    urlSignals: ["/akam/", "/.well-known/sbsd/"],
+    challenges: {
+      sensor_challenge: ["_abck", "sensor_data", "bmak"],
+      blocked: ["Access Denied", "Reference #"],
+    },
+  },
+  cloudflare: {
+    name: "Cloudflare",
+    tier: "high",
+    headers: [
+      { key: "server", value: "cloudflare" },
+      { key: "cf-ray", value: null },
+      { key: "cf-cache-status", value: null },
+      { key: "cf-mitigated", value: null },
+      { key: "cf-request-id", value: null },
+      { key: "cf-connecting-ip", value: null },
+      { key: "cf-edge-cache", value: null },
+    ],
+    cookies: ["__cf_bm", "cf_clearance", "__cflb", "__cfruid", "_cfuvid", "cf_ob_info", "cf_use_ob"],
+    htmlSignals: [
+      "challenges.cloudflare.com", "/cdn-cgi/", "cf-browser-verification",
+      "cf-chl-widget", "cf-challenge-running", "cloudflare-static/",
+      "_cf_chl_opt", "cdn-cgi/challenge-platform",
+    ],
+    jsSignals: ["_cf_chl_opt", "turnstile", "cf-challenge", "cloudflare"],
+    challenges: {
+      js_challenge: ["Just a moment", "Checking your browser", "cf-spinner-please-wait", "cf-challenge-running"],
+      managed_challenge: ["challenges.cloudflare.com/turnstile", "cf-turnstile", "cdn-cgi/challenge-platform/h/g/orchestrate"],
+      interactive_captcha: ["cf-hcaptcha-container", "g-recaptcha", "cf-captcha-container"],
+      blocked: ["Sorry, you have been blocked", "Access denied", "Error 1020", "Error 1015", "Error 1012"],
+      rate_limited: ["Error 1015", "You are being rate limited"],
+    },
+  },
+  imperva: {
+    name: "Imperva / Incapsula",
+    tier: "high",
+    headers: [
+      { key: "x-cdn", value: "imperva" },
+      { key: "x-cdn", value: "incapsula" },
+      { key: "x-iinfo", value: null },
+    ],
+    cookies: ["visid_incap_", "incap_ses_", "__utmvc", "reese84", "nlbi_", "utmvc"],
+    htmlSignals: ["incapsula", "imperva", "_Incapsula_Resource", "reese84"],
+    jsSignals: ["_Incapsula", "reese84", "incapsula"],
+    challenges: {
+      js_challenge: ["_Incapsula_Resource"],
+      blocked: ["Request unsuccessful", "Incapsula incident"],
+    },
+  },
+
+  // ─────────── TIER 3: MEDIUM DIFFICULTY ───────────
+  f5: {
+    name: "F5 BIG-IP ASM",
+    tier: "medium",
+    headers: [
+      { key: "x-powered-by", value: "f5" },
+      { key: "server", value: "bigip" },
+      { key: "server", value: "big-ip" },
+    ],
+    cookies: ["TSPD_101", "f5_cspm", "f5avraaaaaaa", "MRHSession"],
+    cookieRegex: [/^TS[0-9a-f]{8,}$/i, /^BIGipServer/i],
+    htmlSignals: ["f5.com", "big-ip"],
+    jsSignals: ["f5.com"],
+    challenges: {
+      blocked: ["The requested URL was rejected"],
+    },
+  },
+  aws_waf: {
+    name: "AWS WAF / CloudFront",
+    tier: "medium",
+    headers: [
+      { key: "server", value: "cloudfront" },
+      { key: "x-amz-cf-id", value: null },
+      { key: "x-amz-cf-pop", value: null },
+      { key: "x-amzn-waf-action", value: null },
+      { key: "x-amzn-requestid", value: null },
+    ],
+    cookies: ["aws-waf-token", "AWSALB", "AWSALBCORS"],
+    htmlSignals: ["aws-waf", "awswaf", "aws_captcha"],
+    jsSignals: ["aws-waf-token", "awswaf"],
+    challenges: {
+      captcha: ["aws_captcha", "awswaf", "aws-waf-captcha"],
+      blocked: ["Request blocked", "ERROR: The request could not be satisfied"],
+    },
+  },
+  sucuri: {
+    name: "Sucuri / CloudProxy",
+    tier: "medium",
+    headers: [
+      { key: "server", value: "sucuri" },
+      { key: "server", value: "cloudproxy" },
+      { key: "x-sucuri-id", value: null },
+      { key: "x-sucuri-cache", value: null },
+    ],
+    cookies: ["sucuri_cloudproxy_"],
+    htmlSignals: ["sucuri.net", "cloudproxy", "sucuri_cloudproxy", "Sucuri WebSite Firewall"],
+    jsSignals: ["sucuri"],
+    challenges: {
+      js_challenge: ["sucuri_cloudproxy_js"],
+      blocked: ["Access Denied - Sucuri", "Sucuri WebSite Firewall"],
+    },
+  },
+  reblaze: {
+    name: "Reblaze",
+    tier: "medium",
+    headers: [
+      { key: "server", value: "reblaze" },
+      { key: "rbzid", value: null },
+    ],
+    cookies: ["rbzid", "rbzsessionid"],
+    cookieRegex: [/^rbz/i],
+    htmlSignals: ["reblaze", "rbzid"],
+    jsSignals: ["reblaze", "rbzid"],
+    challenges: { blocked: ["Access Denied"] },
   },
   ddos_guard: {
     name: "DDoS-Guard",
+    tier: "medium",
     headers: [{ key: "server", value: "ddos-guard" }],
     cookies: ["__ddg1_", "__ddg2_", "__ddgid_", "__ddgmark_"],
     htmlSignals: ["ddos-guard", "ddos-guard.net"],
-    challenges: { js_challenge: ["DDoS-Guard"] },
+    jsSignals: ["ddos-guard"],
+    challenges: { js_challenge: ["DDoS-Guard", "ddos protection"] },
+  },
+
+  // ─────────── TIER 4: LOW DIFFICULTY ───────────
+  fastly: {
+    name: "Fastly",
+    tier: "low",
+    headers: [
+      { key: "server", value: "fastly" },
+      { key: "x-served-by", value: "cache-" },
+      { key: "x-fastly-request-id", value: null },
+      { key: "via", value: "varnish" },
+      { key: "x-cache", value: null, requiresOther: "via" },
+    ],
+    cookies: [],
+    htmlSignals: [],
+    jsSignals: [],
+    challenges: {},
+  },
+  google_cloud_armor: {
+    name: "Google Cloud Armor",
+    tier: "medium",
+    headers: [
+      { key: "x-goog-", value: null, prefix: true },
+      { key: "server", value: "google frontend" },
+      { key: "server", value: "gws" },
+      { key: "x-cloud-trace-context", value: null },
+    ],
+    cookies: [],
+    htmlSignals: ["google cloud armor"],
+    jsSignals: [],
+    challenges: {
+      blocked: ["Your client does not have permission"],
+      captcha: ["recaptcha"],
+    },
+  },
+  azure_front_door: {
+    name: "Azure Front Door / WAF",
+    tier: "medium",
+    headers: [
+      { key: "x-azure-ref", value: null },
+      { key: "x-fd-healthprobe", value: null },
+      { key: "x-ms-routing-name", value: null },
+    ],
+    cookies: [],
+    htmlSignals: ["azure front door"],
+    jsSignals: [],
+    challenges: {
+      blocked: ["This request was blocked by the security rules"],
+    },
+  },
+  stackpath: {
+    name: "StackPath / Highwinds",
+    tier: "low",
+    headers: [
+      { key: "server", value: "stackpath" },
+      { key: "server", value: "highwinds" },
+      { key: "x-hw", value: null },
+    ],
+    cookies: ["sp_"],
+    htmlSignals: ["stackpath"],
+    jsSignals: [],
+    challenges: {},
   },
   vercel_fw: {
     name: "Vercel Firewall",
+    tier: "low",
     headers: [
       { key: "server", value: "vercel" },
       { key: "x-vercel-id", value: null },
     ],
     cookies: ["__vercel"],
     htmlSignals: [],
+    jsSignals: [],
     challenges: {},
   },
-  stackpath: {
-    name: "StackPath",
-    headers: [{ key: "server", value: "stackpath" }],
-    cookies: ["sp_"],
-    htmlSignals: ["stackpath"],
+  botguard: {
+    name: "Google BotGuard",
+    tier: "high",
+    headers: [],
+    cookies: [],
+    htmlSignals: ["botguard"],
+    jsSignals: ["botguard", "/bg/", "BotGuard"],
+    urlSignals: ["/bg/"],
     challenges: {},
+  },
+  cheq: {
+    name: "CHEQ",
+    tier: "high",
+    headers: [],
+    cookies: [],
+    htmlSignals: ["cheq.ai", "CheqSdk"],
+    jsSignals: ["CheqSdk", "cheq_invalidUsers", "cheq.ai"],
+    challenges: {},
+  },
+  threatmetrix: {
+    name: "ThreatMetrix (LexisNexis)",
+    tier: "high",
+    headers: [],
+    cookies: [],
+    htmlSignals: ["ThreatMetrix"],
+    jsSignals: ["ThreatMetrix", "fp/check.js", "org_id=", "BNQL"],
+    urlSignals: ["fp/check.js"],
+    challenges: {},
+  },
+  meetrics: {
+    name: "Meetrics",
+    tier: "medium",
+    headers: [],
+    cookies: [],
+    htmlSignals: ["meetricsGlobal", "mxcdn.net"],
+    jsSignals: ["meetricsGlobal", "suspicious_mouse_movement", "mtrcs_"],
+    challenges: {},
+  },
+  ocule: {
+    name: "Ocule",
+    tier: "medium",
+    headers: [],
+    cookies: [],
+    htmlSignals: ["ocule.co.uk"],
+    jsSignals: ["proxy.ocule.co.uk", "ocule"],
+    challenges: {},
+  },
+  fortinet: {
+    name: "Fortinet FortiWeb",
+    tier: "medium",
+    headers: [
+      { key: "server", value: "fortiweb" },
+    ],
+    cookies: ["FORTIWAFSID"],
+    htmlSignals: ["fortiweb", "fortinet"],
+    jsSignals: [],
+    challenges: { blocked: ["FortiWeb"] },
+  },
+  barracuda: {
+    name: "Barracuda WAF",
+    tier: "medium",
+    headers: [
+      { key: "server", value: "barracuda" },
+    ],
+    cookies: ["barra_counter_session"],
+    htmlSignals: ["barracuda"],
+    jsSignals: [],
+    challenges: { blocked: ["Barracuda"] },
+  },
+  edgecast: {
+    name: "Edgecast / Verizon Digital Media",
+    tier: "low",
+    headers: [
+      { key: "server", value: "ecs" },
+      { key: "x-ec-", value: null, prefix: true },
+    ],
+    cookies: [],
+    htmlSignals: [],
+    jsSignals: [],
+    challenges: {},
+  },
+  radware: {
+    name: "Radware Bot Manager",
+    tier: "high",
+    headers: [
+      { key: "x-bot-manager", value: null },
+    ],
+    cookies: ["ShieldSquare", "reese84"],
+    htmlSignals: ["radware", "ShieldSquare"],
+    jsSignals: ["ShieldSquare", "radware"],
+    challenges: { blocked: ["Radware Bot Manager"] },
   },
 };
 
-// ============ CHALLENGE PAGE INDICATORS ============
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║        CAPTCHA SIGNATURES DATABASE (10 types)                   ║
+// ╚══════════════════════════════════════════════════════════════════╝
+
+const CAPTCHA_SIGNATURES = {
+  turnstile: {
+    name: "Cloudflare Turnstile",
+    htmlSignals: ["challenges.cloudflare.com/turnstile", "cf-turnstile"],
+    jsSignals: ["turnstile"],
+    siteKeyPattern: /data-sitekey=["']([^"']+)["']/,
+  },
+  recaptcha_v2: {
+    name: "reCAPTCHA v2",
+    htmlSignals: ["google.com/recaptcha", "gstatic.com/recaptcha", "g-recaptcha"],
+    jsSignals: ["grecaptcha.render", "g-recaptcha"],
+    siteKeyPattern: /data-sitekey=["']([^"']+)["']/,
+    exclude: ["recaptcha/api.js?render="],
+  },
+  recaptcha_v3: {
+    name: "reCAPTCHA v3",
+    htmlSignals: ["recaptcha/api.js?render="],
+    jsSignals: ["grecaptcha.execute", "recaptcha/api.js?render="],
+    siteKeyPattern: /render=([^&"']+)/,
+  },
+  hcaptcha: {
+    name: "hCaptcha",
+    htmlSignals: ["hcaptcha.com", "h-captcha"],
+    jsSignals: ["hcaptcha.render", "hcaptcha.execute"],
+    siteKeyPattern: /data-sitekey=["']([^"']+)["']/,
+  },
+  funcaptcha: {
+    name: "FunCaptcha (Arkose Labs)",
+    htmlSignals: ["client-api.arkoselabs.com", "api.funcaptcha.com"],
+    jsSignals: ["ArkoseEnforce", "arkoseCallback", "funcaptcha"],
+    siteKeyPattern: /data-pkey=["']([^"']+)["']/,
+  },
+  geetest: {
+    name: "GeeTest",
+    htmlSignals: ["api.geetest.com", "static.geetest.com"],
+    jsSignals: ["initGeetest", "geetestUtils"],
+    siteKeyPattern: null,
+  },
+  aws_captcha: {
+    name: "AWS WAF CAPTCHA",
+    htmlSignals: ["aws_captcha", "awswaf", "aws-waf-captcha"],
+    jsSignals: ["aws-waf-token"],
+    siteKeyPattern: null,
+  },
+  qcloud: {
+    name: "QCloud / Tencent CAPTCHA",
+    htmlSignals: ["turing.captcha.qcloud.com", "TencentCaptcha"],
+    jsSignals: ["TencentCaptcha"],
+    siteKeyPattern: null,
+  },
+  captcha_eu: {
+    name: "Captcha.eu",
+    htmlSignals: ["captcha.eu", "CaptchaEU"],
+    jsSignals: ["CaptchaEU"],
+    siteKeyPattern: null,
+  },
+  friendly_captcha: {
+    name: "Friendly Captcha",
+    htmlSignals: ["friendlycaptcha.com", "frc-captcha"],
+    jsSignals: ["friendlyChallenge", "frc-captcha"],
+    siteKeyPattern: null,
+  },
+};
+
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║        CHALLENGE PAGE INDICATORS (comprehensive)                ║
+// ╚══════════════════════════════════════════════════════════════════╝
+
 const CHALLENGE_INDICATORS = [
+  // Cloudflare
   "just a moment", "checking your browser", "cf-browser-verification",
   "cf-challenge-running", "enable javascript and cookies to continue",
+  "performance & security by cloudflare",
+  // Generic
   "please wait while we verify", "one more step",
   "please complete the security check", "attention required",
   "access denied", "you have been blocked", "error 1020",
-  "performance & security by cloudflare", "ddos protection by",
-  "please turn javascript on", "pardon our interruption",
-  "press & hold", "verifying you are human",
+  "ddos protection by", "please turn javascript on",
+  "pardon our interruption", "press & hold", "verifying you are human",
+  "checking if the site connection is secure",
+  "this process is automatic", "your browser will redirect",
+  "ray id:", "please allow up to 5 seconds",
+  // Imperva
+  "request unsuccessful", "incapsula incident",
+  // Akamai
+  "access denied", "reference #",
+  // Sucuri
+  "sucuri website firewall", "access denied - sucuri",
+  // AWS
+  "the request could not be satisfied",
+  // Generic bot
+  "bot detected", "automated access", "suspicious activity",
+  "unusual traffic", "are you a robot", "prove you are human",
+  "browser verification required", "security verification",
 ];
 
-// ============ FETCH HELPER ============
-async function safeFetch(targetUrl, timeout = 15000) {
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║        FETCH HELPERS                                            ║
+// ╚══════════════════════════════════════════════════════════════════╝
+
+const USER_AGENTS = [
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:133.0) Gecko/20100101 Firefox/133.0',
+];
+
+async function safeFetch(targetUrl, timeout = 15000, uaIndex = 0) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeout);
   try {
     const res = await fetch(targetUrl, {
       signal: controller.signal,
       headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+        'User-Agent': USER_AGENTS[uaIndex % USER_AGENTS.length],
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
         'Accept-Language': 'ar-SA,ar;q=0.9,en-US;q=0.8,en;q=0.7',
         'Accept-Encoding': 'gzip, deflate, br',
@@ -193,6 +505,8 @@ async function safeFetch(targetUrl, timeout = 15000) {
         'Sec-Fetch-Site': 'none',
         'Sec-Fetch-User': '?1',
         'Upgrade-Insecure-Requests': '1',
+        'Cache-Control': 'no-cache',
+        'Pragma': 'no-cache',
       },
       redirect: 'follow',
     });
@@ -204,7 +518,10 @@ async function safeFetch(targetUrl, timeout = 15000) {
   }
 }
 
-// ============ SOCKET.IO HELPERS ============
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║        SOCKET.IO HELPERS (unchanged)                            ║
+// ╚══════════════════════════════════════════════════════════════════╝
+
 async function testSocketIO(url) {
   try {
     const sioUrl = `${url.replace(/\/$/, '')}/socket.io/?EIO=4&transport=polling`;
@@ -281,113 +598,164 @@ function extractJsUrls(html, baseUrl) {
   return [...jsUrls];
 }
 
-// ============ LAYER 1+2: HEADER & COOKIE ANALYSIS ============
-function analyzeHeadersAndCookies(response, htmlContent) {
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║   LAYER 1: HEADER ANALYSIS (deep inspection)                    ║
+// ╚══════════════════════════════════════════════════════════════════╝
+
+function analyzeHeaders(response) {
   const detected = [];
   const headers = {};
-  const cookies = {};
   const details = [];
+  const rawHeaders = {};
 
-  // Normalize headers
   for (const [k, v] of response.headers.entries()) {
     headers[k.toLowerCase()] = v.toLowerCase();
+    rawHeaders[k.toLowerCase()] = v;
   }
 
-  // Extract cookies from set-cookie
-  const setCookie = response.headers.get('set-cookie') || '';
-  const cookieNames = setCookie.match(/([a-zA-Z0-9_.-]+)=/g) || [];
-  for (const cn of cookieNames) {
-    cookies[cn.replace('=', '')] = true;
-  }
-
-  // Check each protection signature
   for (const [protId, sig] of Object.entries(PROTECTION_SIGNATURES)) {
-    let headerScore = 0;
-    let cookieMatch = false;
+    let score = 0;
 
-    // Header check
-    for (const h of sig.headers) {
+    // Standard header checks
+    for (const h of (sig.headers || [])) {
       if (h.prefix) {
-        // Prefix match
         if (Object.keys(headers).some(k => k.startsWith(h.key))) {
-          headerScore += 3;
+          score += 3;
+          details.push(`[HEADER] ${sig.name}: prefix match "${h.key}*"`);
         }
       } else if (h.value === null) {
-        // Just check existence
         if (headers[h.key] !== undefined) {
-          headerScore += 3;
+          score += 3;
+          details.push(`[HEADER] ${sig.name}: header "${h.key}" present`);
         }
       } else {
-        // Check value contains
         if (headers[h.key] && headers[h.key].includes(h.value)) {
-          headerScore += 3;
+          score += 3;
+          details.push(`[HEADER] ${sig.name}: "${h.key}" = "${h.value}"`);
         }
       }
     }
 
-    // Cookie check
-    for (const cookieName of Object.keys(cookies)) {
-      for (const pattern of sig.cookies) {
-        if (cookieName.toLowerCase().includes(pattern.toLowerCase())) {
-          cookieMatch = true;
-          break;
-        }
-      }
-      // Regex patterns (F5)
-      if (!cookieMatch && sig.cookieRegex) {
-        for (const regex of sig.cookieRegex) {
-          if (regex.test(cookieName)) {
-            cookieMatch = true;
+    // Regex header checks (Shape Security etc.)
+    if (sig.headerRegex) {
+      for (const regex of sig.headerRegex) {
+        for (const hk of Object.keys(headers)) {
+          if (regex.test(hk)) {
+            score += 5;
+            details.push(`[HEADER] ${sig.name}: regex match on "${hk}"`);
             break;
           }
         }
       }
-      if (cookieMatch) break;
     }
 
-    if (headerScore >= 3 || cookieMatch) {
+    if (score >= 3) {
       detected.push(protId);
-      const method = headerScore >= 3 ? 'HEADER' : 'COOKIE';
-      details.push(`[${method}] ${sig.name} detected`);
     }
   }
 
-  return { detected, headers, cookies, details };
+  return { detected, headers, rawHeaders, details };
 }
 
-// ============ LAYER 3: HTML ANALYSIS ============
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║   LAYER 2: COOKIE ANALYSIS (deep inspection)                    ║
+// ╚══════════════════════════════════════════════════════════════════╝
+
+function analyzeCookies(response, existingDetected) {
+  const detected = [...existingDetected];
+  const details = [];
+  const cookies = {};
+
+  const setCookie = response.headers.get('set-cookie') || '';
+  const cookieNames = setCookie.match(/(?:^|,\s*)([^=;\s]+)(?==)/g) || [];
+  for (const cn of cookieNames) {
+    const name = cn.replace(/^,\s*/, '').trim();
+    cookies[name] = true;
+  }
+
+  for (const [protId, sig] of Object.entries(PROTECTION_SIGNATURES)) {
+    if (detected.includes(protId)) continue;
+    let found = false;
+
+    // Standard cookie name check
+    for (const cookieName of Object.keys(cookies)) {
+      for (const pattern of (sig.cookies || [])) {
+        if (cookieName.toLowerCase().includes(pattern.toLowerCase())) {
+          found = true;
+          details.push(`[COOKIE] ${sig.name}: "${cookieName}" matches "${pattern}"`);
+          break;
+        }
+      }
+      if (found) break;
+
+      // Regex cookie check
+      if (sig.cookieRegex) {
+        for (const regex of sig.cookieRegex) {
+          if (regex.test(cookieName)) {
+            found = true;
+            details.push(`[COOKIE] ${sig.name}: "${cookieName}" matches regex`);
+            break;
+          }
+        }
+      }
+      if (found) break;
+    }
+
+    if (found) {
+      detected.push(protId);
+    }
+  }
+
+  return { detected, cookies, details };
+}
+
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║   LAYER 3: HTML DEEP ANALYSIS                                   ║
+// ╚══════════════════════════════════════════════════════════════════╝
+
 function analyzeHtml(htmlContent, existingDetected) {
   const detected = [...existingDetected];
   const details = [];
   let challengeType = 'none';
-  let captchaInfo = { type: null, siteKey: null };
   const htmlLower = htmlContent.toLowerCase();
 
   // Check HTML signals for each protection
   for (const [protId, sig] of Object.entries(PROTECTION_SIGNATURES)) {
     if (detected.includes(protId)) continue;
-    for (const signal of sig.htmlSignals || []) {
+    for (const signal of (sig.htmlSignals || [])) {
       if (htmlLower.includes(signal.toLowerCase())) {
         detected.push(protId);
-        details.push(`[HTML] ${sig.name} detected (signal: ${signal})`);
+        details.push(`[HTML] ${sig.name}: signal "${signal}" found`);
         break;
       }
     }
   }
 
-  // Check challenge indicators for detected protections
-  const challengePriority = { none: 0, js_challenge: 1, managed_challenge: 2, captcha: 3, blocked: 4 };
+  // Check URL signals in HTML (script src, link href, etc.)
+  for (const [protId, sig] of Object.entries(PROTECTION_SIGNATURES)) {
+    if (detected.includes(protId)) continue;
+    for (const signal of (sig.urlSignals || [])) {
+      if (htmlLower.includes(signal.toLowerCase())) {
+        detected.push(protId);
+        details.push(`[URL-IN-HTML] ${sig.name}: URL signal "${signal}" found`);
+        break;
+      }
+    }
+  }
+
+  // Determine challenge type
+  const challengePriority = { none: 0, js_challenge: 1, sensor_challenge: 2, managed_challenge: 3, captcha: 4, interactive_captcha: 4, rate_limited: 4, blocked: 5 };
   for (const protId of detected) {
     const sig = PROTECTION_SIGNATURES[protId];
     if (!sig || !sig.challenges) continue;
     for (const [cType, indicators] of Object.entries(sig.challenges)) {
       for (const indicator of indicators) {
         if (htmlLower.includes(indicator.toLowerCase())) {
-          const newPriority = challengePriority[cType] || 0;
-          const oldPriority = challengePriority[challengeType] || 0;
-          if (newPriority > oldPriority) {
+          const newP = challengePriority[cType] || 0;
+          const oldP = challengePriority[challengeType] || 0;
+          if (newP > oldP) {
             challengeType = cType;
-            details.push(`[CHALLENGE] ${sig.name}: ${cType} (${indicator})`);
+            details.push(`[CHALLENGE] ${sig.name}: ${cType} ("${indicator}")`);
           }
           break;
         }
@@ -395,31 +763,196 @@ function analyzeHtml(htmlContent, existingDetected) {
     }
   }
 
-  // Detect CAPTCHA type and site key
-  if (htmlLower.includes('challenges.cloudflare.com/turnstile') || htmlLower.includes('cf-turnstile')) {
-    captchaInfo.type = 'turnstile';
-    const m = htmlContent.match(/data-sitekey=["']([^"']+)["']/);
-    if (m) captchaInfo.siteKey = m[1];
-    details.push(`[CAPTCHA] Cloudflare Turnstile (key: ${captchaInfo.siteKey || 'unknown'})`);
-  } else if (htmlLower.includes('google.com/recaptcha') || htmlLower.includes('g-recaptcha')) {
-    captchaInfo.type = htmlLower.includes('recaptcha/api.js?render=') ? 'recaptcha_v3' : 'recaptcha_v2';
-    const m = htmlContent.match(/data-sitekey=["']([^"']+)["']/) || htmlContent.match(/render=([^&"']+)/);
-    if (m) captchaInfo.siteKey = m[1];
-    details.push(`[CAPTCHA] ${captchaInfo.type}`);
-  } else if (htmlLower.includes('hcaptcha.com') || htmlLower.includes('h-captcha')) {
-    captchaInfo.type = 'hcaptcha';
-    const m = htmlContent.match(/data-sitekey=["']([^"']+)["']/);
-    if (m) captchaInfo.siteKey = m[1];
-    details.push(`[CAPTCHA] hCaptcha`);
-  } else if (htmlLower.includes('aws_captcha') || htmlLower.includes('awswaf')) {
-    captchaInfo.type = 'aws_captcha';
-    details.push(`[CAPTCHA] AWS WAF CAPTCHA`);
-  }
-
-  return { detected, challengeType, captchaInfo, details };
+  return { detected, challengeType, details };
 }
 
-// ============ LAYER 6: CONTENT VERIFICATION ============
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║   LAYER 4: CAPTCHA DETECTION (10 types)                         ║
+// ╚══════════════════════════════════════════════════════════════════╝
+
+function detectCaptcha(htmlContent) {
+  const htmlLower = htmlContent.toLowerCase();
+  const captchas = [];
+
+  for (const [captchaId, sig] of Object.entries(CAPTCHA_SIGNATURES)) {
+    // Check exclusions first (e.g., recaptcha_v2 excluded if v3 pattern found)
+    if (sig.exclude) {
+      let excluded = false;
+      for (const ex of sig.exclude) {
+        if (htmlLower.includes(ex.toLowerCase())) {
+          excluded = true;
+          break;
+        }
+      }
+      if (excluded) continue;
+    }
+
+    let found = false;
+    for (const signal of sig.htmlSignals) {
+      if (htmlLower.includes(signal.toLowerCase())) {
+        found = true;
+        break;
+      }
+    }
+
+    if (found) {
+      let siteKey = null;
+      if (sig.siteKeyPattern) {
+        const m = htmlContent.match(sig.siteKeyPattern);
+        if (m) siteKey = m[1];
+      }
+      captchas.push({ type: captchaId, name: sig.name, siteKey });
+    }
+  }
+
+  // Return primary captcha (first found)
+  const primary = captchas.length > 0 ? captchas[0] : { type: null, name: null, siteKey: null };
+  return { primary, all: captchas };
+}
+
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║   LAYER 5: JAVASCRIPT DEEP SCAN                                 ║
+// ╚══════════════════════════════════════════════════════════════════╝
+
+async function deepScanJavaScript(htmlContent, baseUrl, existingDetected, scanLog) {
+  const detected = [...existingDetected];
+  const details = [];
+  let hasSocketIO = false;
+  let socketUrl = null;
+  let candidateSocketUrl = null;
+
+  const jsUrls = extractJsUrls(htmlContent, baseUrl);
+  const skipDomains = ['googleapis.com', 'gstatic.com', 'cdnjs.com', 'unpkg.com', 'jsdelivr.net', 'jquery.com', 'bootstrapcdn.com'];
+
+  let jsScanned = 0;
+  for (const jsUrl of jsUrls.slice(0, 20)) {
+    if (skipDomains.some(d => jsUrl.includes(d))) continue;
+    try {
+      const jsRes = await safeFetch(jsUrl, 10000);
+      if (!jsRes || !jsRes.ok) continue;
+      const jsContent = await jsRes.text();
+      const jsLower = jsContent.toLowerCase();
+      jsScanned++;
+
+      // Check protection JS signals
+      for (const [protId, sig] of Object.entries(PROTECTION_SIGNATURES)) {
+        if (detected.includes(protId)) continue;
+        for (const signal of (sig.jsSignals || [])) {
+          if (jsLower.includes(signal.toLowerCase())) {
+            detected.push(protId);
+            details.push(`[JS-DEEP] ${sig.name}: "${signal}" found in ${new URL(jsUrl).pathname}`);
+            break;
+          }
+        }
+      }
+
+      // Check CAPTCHA JS signals
+      for (const [captchaId, sig] of Object.entries(CAPTCHA_SIGNATURES)) {
+        for (const signal of (sig.jsSignals || [])) {
+          if (jsLower.includes(signal.toLowerCase())) {
+            details.push(`[JS-CAPTCHA] ${sig.name}: "${signal}" found in JS`);
+            break;
+          }
+        }
+      }
+
+      // NexaFlow detection
+      if (jsContent.includes('nf-api-key') || jsContent.includes('data-flow-apis') || jsContent.includes('nexaflow')) {
+        const nfMatch = jsContent.match(/["'](https?:\/\/[^"']*data-flow-apis[^"']*)["']/i);
+        const nfSocketUrl = nfMatch ? new URL(nfMatch[1]).origin : 'https://data-flow-apis.cc';
+        hasSocketIO = true;
+        socketUrl = nfSocketUrl;
+        scanLog.push(`[JS-DEEP] NexaFlow detected! Socket: ${nfSocketUrl}`);
+        break;
+      }
+
+      // Socket URL search in JS
+      if (!hasSocketIO) {
+        const backendUrls = extractSocketUrls(jsContent);
+        for (const bu of backendUrls) {
+          if (await testSocketIO(bu)) {
+            hasSocketIO = true;
+            socketUrl = bu.replace(/\/$/, '');
+            scanLog.push(`[JS-DEEP] Socket found in JS bundle: ${socketUrl}`);
+            break;
+          } else if (!candidateSocketUrl) {
+            candidateSocketUrl = bu.replace(/\/$/, '');
+          }
+        }
+      }
+
+      if (hasSocketIO) break;
+    } catch { continue; }
+  }
+
+  scanLog.push(`[JS-DEEP] Scanned ${jsScanned} JS files`);
+  return { detected, details, hasSocketIO, socketUrl, candidateSocketUrl };
+}
+
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║   LAYER 6: MULTI-REQUEST PROBE (Rate Limiting detection)        ║
+// ╚══════════════════════════════════════════════════════════════════╝
+
+async function multiRequestProbe(url, scanLog) {
+  const results = [];
+  const details = [];
+
+  // Send 3 rapid requests with different UAs to detect rate limiting
+  for (let i = 0; i < 3; i++) {
+    const res = await safeFetch(url, 10000, i);
+    if (res) {
+      results.push({ status: res.status, headers: Object.fromEntries(res.headers.entries()) });
+    } else {
+      results.push({ status: 0, headers: {} });
+    }
+    // Small delay between requests
+    await new Promise(r => setTimeout(r, 500));
+  }
+
+  // Analyze patterns
+  const statuses = results.map(r => r.status);
+  const uniqueStatuses = [...new Set(statuses)];
+
+  // Rate limiting detection
+  if (statuses.some(s => s === 429)) {
+    details.push(`[MULTI-REQ] Rate limiting detected (429 response)`);
+    scanLog.push(`[PROBE] Rate limiting active (429)`);
+  }
+
+  // Progressive blocking (first OK, then blocked)
+  if (statuses[0] === 200 && statuses[2] !== 200) {
+    details.push(`[MULTI-REQ] Progressive blocking detected (${statuses.join(' → ')})`);
+    scanLog.push(`[PROBE] Progressive blocking: ${statuses.join(' → ')}`);
+  }
+
+  // Inconsistent responses (behavioral detection)
+  if (uniqueStatuses.length > 1 && !statuses.includes(0)) {
+    details.push(`[MULTI-REQ] Inconsistent responses: ${statuses.join(', ')}`);
+    scanLog.push(`[PROBE] Response pattern: ${statuses.join(', ')}`);
+  }
+
+  // Check for new cookies/headers appearing in later requests
+  if (results.length >= 2) {
+    const firstHeaders = Object.keys(results[0].headers);
+    const lastHeaders = Object.keys(results[results.length - 1].headers);
+    const newHeaders = lastHeaders.filter(h => !firstHeaders.includes(h));
+    if (newHeaders.length > 0) {
+      details.push(`[MULTI-REQ] New headers appeared: ${newHeaders.join(', ')}`);
+    }
+  }
+
+  return {
+    hasRateLimiting: statuses.some(s => s === 429),
+    hasProgressiveBlocking: statuses[0] === 200 && statuses[2] !== 200,
+    responsePattern: statuses,
+    details,
+  };
+}
+
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║   LAYER 7: CONTENT VERIFICATION (is real content reached?)      ║
+// ╚══════════════════════════════════════════════════════════════════╝
+
 function verifyRealContent(htmlContent, status) {
   if (!htmlContent) return { reached: false, reason: 'empty', signals: 0 };
 
@@ -434,63 +967,76 @@ function verifyRealContent(htmlContent, status) {
 
   // Count real content signals
   let signals = 0;
+  const signalDetails = [];
 
   // Real title check
   const titleMatch = htmlContent.match(/<title>([^<]+)<\/title>/i);
   if (titleMatch) {
     const title = titleMatch[1].trim().toLowerCase();
     const challengeTitles = ['just a moment', 'attention required', 'access denied',
-      'cloudflare', 'please wait', 'ddos', 'security check', 'blocked', 'error'];
+      'cloudflare', 'please wait', 'ddos', 'security check', 'blocked', 'error',
+      'forbidden', '403', '503', 'captcha', 'verification'];
     if (!challengeTitles.some(ct => title.includes(ct))) {
       signals += 2;
+      signalDetails.push(`title: "${titleMatch[1].trim().substring(0, 50)}"`);
     }
   }
 
   // Structure signals
-  if (htmlLower.includes('<nav')) signals++;
-  if (htmlLower.includes('<header')) signals++;
-  if (htmlLower.includes('<footer')) signals++;
-  if (htmlLower.includes('<main') || htmlLower.includes('<article')) signals++;
-  if (htmlContent.length > 10000) signals++;
-  if ((htmlLower.match(/<a /g) || []).length > 5) signals++;
-  if ((htmlLower.match(/<img/g) || []).length > 2) signals++;
+  if (htmlLower.includes('<nav')) { signals++; signalDetails.push('nav'); }
+  if (htmlLower.includes('<header')) { signals++; signalDetails.push('header'); }
+  if (htmlLower.includes('<footer')) { signals++; signalDetails.push('footer'); }
+  if (htmlLower.includes('<main') || htmlLower.includes('<article')) { signals++; signalDetails.push('main/article'); }
+  if (htmlContent.length > 10000) { signals++; signalDetails.push(`size:${htmlContent.length}`); }
+  if ((htmlLower.match(/<a /g) || []).length > 5) { signals++; signalDetails.push('links'); }
+  if ((htmlLower.match(/<img/g) || []).length > 2) { signals++; signalDetails.push('images'); }
+  if (htmlLower.includes('<form')) { signals++; signalDetails.push('form'); }
+  if (htmlLower.includes('stylesheet') || htmlLower.includes('<style')) { signals++; signalDetails.push('css'); }
 
   // SPA check
   const isSPA = htmlLower.includes('<div id="root"') ||
                 htmlLower.includes('<div id="app"') ||
-                htmlLower.includes('<div id="__next"');
+                htmlLower.includes('<div id="__next"') ||
+                htmlLower.includes('<div id="__nuxt"');
 
   if (signals >= 3) {
-    return { reached: true, reason: 'verified_real_content', signals, isSPA };
+    return { reached: true, reason: 'verified_real_content', signals, isSPA, signalDetails };
   } else if (signals >= 1 && status === 200 && htmlContent.length > 2000) {
-    return { reached: true, reason: 'likely_real_content', signals, isSPA };
+    return { reached: true, reason: 'likely_real_content', signals, isSPA, signalDetails };
   } else if (isSPA && status === 200) {
-    return { reached: true, reason: 'spa_shell', signals, isSPA };
+    return { reached: true, reason: 'spa_shell', signals, isSPA, signalDetails };
   }
 
-  return { reached: false, reason: `uncertain_signals_${signals}`, signals, isSPA };
+  return { reached: false, reason: `uncertain_signals_${signals}`, signals, isSPA, signalDetails };
 }
 
-// ============ PROTECTION LEVEL CALCULATOR ============
-function calculateProtectionLevel(detected, challengeType, contentReached, status) {
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║   PROTECTION LEVEL CALCULATOR (enhanced)                        ║
+// ╚══════════════════════════════════════════════════════════════════╝
+
+function calculateProtectionLevel(detected, challengeType, contentReached, status, multiReqData) {
   if (!detected.length || (detected.length === 1 && detected[0] === 'vercel_fw')) {
     return { primary: 'none', level: 'none', confidence: 95 };
   }
 
-  // Primary = strongest protection
-  const priorityOrder = ['kasada', 'datadome', 'perimeterx', 'akamai',
-    'cloudflare', 'imperva', 'f5', 'aws_waf', 'sucuri', 'ddos_guard', 'stackpath', 'vercel_fw'];
+  // Primary = strongest protection by tier
+  const tierOrder = ['extreme', 'high', 'medium', 'low'];
   let primary = detected[0];
-  for (const p of priorityOrder) {
-    if (detected.includes(p)) { primary = p; break; }
+  let highestTier = 'low';
+
+  for (const protId of detected) {
+    const sig = PROTECTION_SIGNATURES[protId];
+    if (!sig) continue;
+    const tierIdx = tierOrder.indexOf(sig.tier || 'low');
+    const currentIdx = tierOrder.indexOf(highestTier);
+    if (tierIdx < currentIdx) {
+      highestTier = sig.tier;
+      primary = protId;
+    }
   }
 
-  // Base level
-  const highLevel = ['kasada', 'datadome', 'perimeterx', 'akamai'];
-  const mediumLevel = ['cloudflare', 'imperva', 'f5'];
-  let level = 'low';
-  if (highLevel.includes(primary)) level = 'high';
-  else if (mediumLevel.includes(primary)) level = 'medium';
+  // Base level from tier
+  let level = highestTier === 'extreme' ? 'extreme' : highestTier;
 
   // Escalate based on challenge
   if (challengeType === 'blocked') level = 'extreme';
@@ -499,27 +1045,42 @@ function calculateProtectionLevel(detected, challengeType, contentReached, statu
     else if (level === 'high') level = 'extreme';
   } else if (challengeType === 'js_challenge' || challengeType === 'sensor_challenge') {
     if (level === 'low') level = 'medium';
+  } else if (challengeType === 'rate_limited') {
+    if (level === 'low') level = 'medium';
   }
 
-  // Escalate if blocked
-  if (!contentReached && (status === 403 || status === 503)) {
+  // Escalate if content not reached
+  if (!contentReached && (status === 403 || status === 503 || status === 429)) {
     if (level === 'low' || level === 'medium') level = 'high';
   }
 
-  // Multiple protections
-  if (detected.length >= 3 && (level === 'low' || level === 'medium')) level = 'high';
+  // Escalate for rate limiting
+  if (multiReqData?.hasRateLimiting) {
+    if (level === 'low') level = 'medium';
+  }
+  if (multiReqData?.hasProgressiveBlocking) {
+    if (level === 'low' || level === 'medium') level = 'high';
+  }
 
-  const confidence = Math.min(30 + detected.length * 15 + (challengeType !== 'none' ? 20 : 0), 99);
+  // Multiple protections = harder
+  if (detected.length >= 3 && (level === 'low' || level === 'medium')) level = 'high';
+  if (detected.length >= 4 && level === 'high') level = 'extreme';
+
+  const confidence = Math.min(30 + detected.length * 12 + (challengeType !== 'none' ? 20 : 0) + (multiReqData ? 10 : 0), 99);
 
   return { primary, level, confidence };
 }
 
-// ============ STRATEGY RECOMMENDER ============
-function recommendStrategy(primary, level, challengeType, hasSocket, socketUrl, captchaInfo) {
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║   STRATEGY RECOMMENDER (enhanced)                               ║
+// ╚══════════════════════════════════════════════════════════════════╝
+
+function recommendStrategy(primary, level, challengeType, hasSocket, socketUrl, captchaInfo, detected) {
   if (hasSocket && socketUrl) {
     return {
       mode: 'socketio',
-      strategy: `Socket.IO mode - connect directly to ${socketUrl}. WebSocket bypasses WAF. Best mode for maximum impact.`,
+      strategy: `Socket.IO mode - connect directly to ${socketUrl}. WebSocket bypasses WAF completely. Best mode for maximum impact.`,
+      successRate: '90-99%',
     };
   }
 
@@ -527,36 +1088,45 @@ function recommendStrategy(primary, level, challengeType, hasSocket, socketUrl, 
     return {
       mode: 'http',
       strategy: 'Direct HTTP mode - no protection detected. Use curl_cffi with TLS spoofing + Saudi proxy for maximum throughput.',
+      successRate: '95-100%',
     };
   }
 
   const protName = PROTECTION_SIGNATURES[primary]?.name || primary;
+  const allProtNames = detected.map(p => PROTECTION_SIGNATURES[p]?.name || p).join(' + ');
 
   if (level === 'extreme') {
     return {
       mode: 'cloudflare',
-      strategy: `EXTREME protection (${protName}). Challenge: ${challengeType}. Strategy: headless browser (Playwright) + CAPTCHA solver required. curl_cffi alone will NOT work. Expected success rate: ~10-30%.`,
+      strategy: `EXTREME protection (${allProtNames}). Challenge: ${challengeType}. Headless browser (Playwright) + CAPTCHA solver required. curl_cffi alone will NOT work. Consider Socket.IO bypass if available.`,
+      successRate: '5-20%',
     };
   } else if (level === 'high') {
-    const captchaNote = captchaInfo?.type ? ` CAPTCHA solver needed for ${captchaInfo.type}.` : '';
+    const captchaNote = captchaInfo?.type ? ` CAPTCHA: ${captchaInfo.name} (solver needed).` : '';
     return {
       mode: 'cloudflare',
-      strategy: `HIGH protection (${protName}). Challenge: ${challengeType}. Strategy: curl_cffi TLS spoof + FlareSolverr + per-proxy cookies.${captchaNote} Expected success rate: ~30-60%.`,
+      strategy: `HIGH protection (${allProtNames}). Challenge: ${challengeType}. curl_cffi TLS spoof + FlareSolverr + per-proxy cookies.${captchaNote}`,
+      successRate: '20-50%',
     };
   } else if (level === 'medium') {
     return {
       mode: 'cloudflare',
-      strategy: `MEDIUM protection (${protName}). Challenge: ${challengeType}. Strategy: curl_cffi TLS spoof should bypass most challenges. FlareSolverr as fallback. Expected success rate: ~60-85%.`,
+      strategy: `MEDIUM protection (${allProtNames}). Challenge: ${challengeType}. curl_cffi TLS spoof should bypass most challenges. FlareSolverr as fallback.`,
+      successRate: '50-80%',
     };
   } else {
     return {
       mode: 'http',
-      strategy: `LOW protection (${protName}). Strategy: curl_cffi with real browser TLS fingerprint + Saudi proxy. Should work without special bypass. Expected success rate: ~85-95%.`,
+      strategy: `LOW protection (${allProtNames}). curl_cffi with real browser TLS fingerprint + Saudi proxy. Should work without special bypass.`,
+      successRate: '80-95%',
     };
   }
 }
 
-// ============ MAIN SCAN ENDPOINT ============
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║   MAIN SCAN ENDPOINT                                            ║
+// ╚══════════════════════════════════════════════════════════════════╝
+
 export async function POST(req) {
   if (!validateApiKey(req)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -574,15 +1144,16 @@ export async function POST(req) {
     const domainName = parsed.hostname.replace('www.', '').split('.')[0];
 
     const scanLog = [];
-    scanLog.push(`[SCAN] Starting advanced multi-layer scan: ${url}`);
+    scanLog.push(`[SCAN] Starting ULTIMATE multi-layer scan v3.0: ${url}`);
+    scanLog.push(`[SCAN] Scanning 25+ protection types across 7 layers...`);
 
-    // ======= STEP 1: Initial Request =======
+    // ======= STEP 1: Initial Request + Header/Cookie Analysis =======
     let htmlContent = '';
     let responseStatus = 0;
     let allDetected = [];
     let allDetails = [];
     let challengeType = 'none';
-    let captchaInfo = { type: null, siteKey: null };
+    let captchaInfo = { primary: { type: null, name: null, siteKey: null }, all: [] };
     let contentVerification = { reached: false, reason: 'no_response', signals: 0, isSPA: false };
 
     const directRes = await safeFetch(url);
@@ -590,40 +1161,77 @@ export async function POST(req) {
       responseStatus = directRes.status;
       scanLog.push(`[STEP1] Response: status=${responseStatus}`);
 
-      // Layer 1+2: Headers & Cookies
-      const headerResult = analyzeHeadersAndCookies(directRes, '');
+      // LAYER 1: Header Analysis
+      const headerResult = analyzeHeaders(directRes);
       allDetected = [...headerResult.detected];
       allDetails = [...headerResult.details];
+      scanLog.push(`[LAYER1] Headers: ${headerResult.detected.length} protections found`);
+
+      // LAYER 2: Cookie Analysis
+      const cookieResult = analyzeCookies(directRes, allDetected);
+      allDetected = cookieResult.detected;
+      allDetails = [...allDetails, ...cookieResult.details];
+      scanLog.push(`[LAYER2] Cookies: ${Object.keys(cookieResult.cookies).length} cookies analyzed`);
 
       htmlContent = await directRes.text();
 
-      // Layer 3: HTML Analysis
+      // LAYER 3: HTML Analysis
       const htmlResult = analyzeHtml(htmlContent, allDetected);
       allDetected = htmlResult.detected;
       challengeType = htmlResult.challengeType;
-      captchaInfo = htmlResult.captchaInfo;
       allDetails = [...allDetails, ...htmlResult.details];
+      scanLog.push(`[LAYER3] HTML: ${htmlResult.detected.length - cookieResult.detected.length} new protections, challenge=${challengeType}`);
 
-      // Layer 6: Content Verification
+      // LAYER 4: CAPTCHA Detection
+      captchaInfo = detectCaptcha(htmlContent);
+      if (captchaInfo.primary.type) {
+        scanLog.push(`[LAYER4] CAPTCHA: ${captchaInfo.primary.name} (key: ${captchaInfo.primary.siteKey || 'unknown'})`);
+        if (captchaInfo.all.length > 1) {
+          scanLog.push(`[LAYER4] Additional CAPTCHAs: ${captchaInfo.all.slice(1).map(c => c.name).join(', ')}`);
+        }
+      } else {
+        scanLog.push(`[LAYER4] No CAPTCHA detected`);
+      }
+
+      // LAYER 7: Content Verification
       contentVerification = verifyRealContent(htmlContent, responseStatus);
-      scanLog.push(`[VERIFY] Real content: ${contentVerification.reached} (${contentVerification.reason}, signals=${contentVerification.signals})`);
+      scanLog.push(`[LAYER7] Content: reached=${contentVerification.reached} (${contentVerification.reason}, signals=${contentVerification.signals})`);
 
     } else {
       scanLog.push(`[STEP1] No response - site may be down or heavily protected`);
       allDetected.push('unknown_waf');
     }
 
-    // ======= STEP 2: Protection Level Calculation =======
-    const protLevel = calculateProtectionLevel(allDetected, challengeType, contentVerification.reached, responseStatus);
-    scanLog.push(`[LEVEL] Primary: ${protLevel.primary}, Level: ${protLevel.level}, Confidence: ${protLevel.confidence}%`);
+    // ======= STEP 2: Multi-Request Probe (LAYER 6) =======
+    scanLog.push(`[LAYER6] Starting multi-request probe (3 requests)...`);
+    const multiReqData = await multiRequestProbe(url, scanLog);
+    allDetails = [...allDetails, ...multiReqData.details];
+    if (multiReqData.hasRateLimiting) {
+      scanLog.push(`[LAYER6] ⚠ RATE LIMITING ACTIVE`);
+    }
+    if (multiReqData.hasProgressiveBlocking) {
+      scanLog.push(`[LAYER6] ⚠ PROGRESSIVE BLOCKING DETECTED`);
+    }
+    scanLog.push(`[LAYER6] Response pattern: ${multiReqData.responsePattern.join(' → ')}`);
 
-    // ======= STEP 3: Socket.IO Discovery =======
+    // ======= STEP 3: JavaScript Deep Scan (LAYER 5) =======
     let hasSocketIO = false;
     let socketUrl = null;
     let candidateSocketUrl = null;
 
-    // 3a: Check HTML for socket references
-    if (htmlContent && !hasSocketIO) {
+    if (htmlContent && contentVerification.reached) {
+      scanLog.push(`[LAYER5] Starting deep JavaScript scan...`);
+      const jsResult = await deepScanJavaScript(htmlContent, base, allDetected, scanLog);
+      allDetected = jsResult.detected;
+      allDetails = [...allDetails, ...jsResult.details];
+      hasSocketIO = jsResult.hasSocketIO;
+      socketUrl = jsResult.socketUrl;
+      candidateSocketUrl = jsResult.candidateSocketUrl;
+    }
+
+    // ======= STEP 4: Socket.IO Discovery =======
+    // Check HTML for socket references
+    if (!hasSocketIO && htmlContent) {
       const htmlLower = htmlContent.toLowerCase();
       if (htmlLower.includes('socket.io') || htmlContent.includes('io(')) {
         const socketUrls = extractSocketUrls(htmlContent);
@@ -640,60 +1248,7 @@ export async function POST(req) {
       }
     }
 
-    // 3b: Check JS bundles
-    if (!hasSocketIO && htmlContent && contentVerification.reached) {
-      const jsUrls = extractJsUrls(htmlContent, base);
-      const skipDomains = ['googleapis.com', 'gstatic.com', 'cdnjs.com', 'unpkg.com', 'jsdelivr.net'];
-      for (const jsUrl of jsUrls.slice(0, 15)) {
-        if (skipDomains.some(d => jsUrl.includes(d))) continue;
-        try {
-          const jsRes = await safeFetch(jsUrl, 10000);
-          if (jsRes && jsRes.ok) {
-            const jsContent = await jsRes.text();
-
-            // NexaFlow detection
-            if (jsContent.includes('nf-api-key') || jsContent.includes('data-flow-apis') || jsContent.includes('nexaflow')) {
-              const nfMatch = jsContent.match(/["'](https?:\/\/[^"']*data-flow-apis[^"']*)["']/i);
-              const nfSocketUrl = nfMatch ? new URL(nfMatch[1]).origin : 'https://data-flow-apis.cc';
-              hasSocketIO = true;
-              socketUrl = nfSocketUrl;
-              scanLog.push(`[SOCKET] NexaFlow detected! Socket: ${nfSocketUrl}`);
-              break;
-            }
-
-            // General socket URL search in JS
-            const backendUrls = extractSocketUrls(jsContent);
-            for (const bu of backendUrls) {
-              if (await testSocketIO(bu)) {
-                hasSocketIO = true;
-                socketUrl = bu.replace(/\/$/, '');
-                scanLog.push(`[SOCKET] Found in JS bundle: ${socketUrl}`);
-                break;
-              } else if (!candidateSocketUrl) {
-                candidateSocketUrl = bu.replace(/\/$/, '');
-              }
-            }
-
-            // Also check for protection signals in JS
-            const jsLower = jsContent.toLowerCase();
-            for (const [protId, sig] of Object.entries(PROTECTION_SIGNATURES)) {
-              if (allDetected.includes(protId)) continue;
-              for (const signal of sig.htmlSignals || []) {
-                if (jsLower.includes(signal.toLowerCase())) {
-                  allDetected.push(protId);
-                  allDetails.push(`[JS] ${sig.name} detected in JS bundle`);
-                  break;
-                }
-              }
-            }
-
-            if (hasSocketIO) break;
-          }
-        } catch { continue; }
-      }
-    }
-
-    // 3c: Check same-origin Socket.IO
+    // Check same-origin Socket.IO
     if (!hasSocketIO) {
       if (await testSocketIO(base)) {
         hasSocketIO = true;
@@ -702,7 +1257,7 @@ export async function POST(req) {
       }
     }
 
-    // 3d: Try common backend patterns
+    // Try common backend patterns
     if (!hasSocketIO) {
       const prefixes = [
         `${domainName}-server`, `${domainName}-api`, `${domainName}-backend`,
@@ -734,14 +1289,14 @@ export async function POST(req) {
       }
     }
 
-    // 3e: Use candidate if nothing verified
+    // Use candidate if nothing verified
     if (!hasSocketIO && candidateSocketUrl) {
       hasSocketIO = true;
       socketUrl = candidateSocketUrl;
       scanLog.push(`[SOCKET] Unverified candidate (CF may block): ${candidateSocketUrl}`);
     }
 
-    // 3f: Try frontend deployments if blocked
+    // Try frontend deployments if blocked
     if (!hasSocketIO && !contentVerification.reached) {
       const frontendCandidates = [
         `https://${domainName}.vercel.app`,
@@ -781,11 +1336,14 @@ export async function POST(req) {
       }
     }
 
-    // ======= STEP 4: Recalculate with all info =======
-    const finalProtLevel = calculateProtectionLevel(allDetected, challengeType, contentVerification.reached, responseStatus);
+    // ======= STEP 5: Final Calculation =======
+    const finalProtLevel = calculateProtectionLevel(
+      allDetected, challengeType, contentVerification.reached,
+      responseStatus, multiReqData
+    );
     const strategy = recommendStrategy(
       finalProtLevel.primary, finalProtLevel.level, challengeType,
-      hasSocketIO, socketUrl, captchaInfo
+      hasSocketIO, socketUrl, captchaInfo.primary, allDetected
     );
 
     // ======= BUILD RESULT =======
@@ -806,32 +1364,46 @@ export async function POST(req) {
       connected_event: 'successfully-connected',
       base_url: base,
       target_url: url,
-      scan_method: 'vercel-advanced-v2',
+      scan_method: 'vercel-ultimate-v3',
 
-      // NEW: Advanced detection data
+      // ADVANCED: Full detection data
       protections_detected: allDetected,
       protection_names: protNames,
+      protection_count: allDetected.filter(p => p !== 'unknown_waf').length,
       protection_level: finalProtLevel.level,
       challenge_type: challengeType,
-      captcha_info: captchaInfo,
+      captcha_info: captchaInfo.primary,
+      all_captchas: captchaInfo.all,
       real_content_reached: contentVerification.reached,
       content_verification: contentVerification.reason,
+      content_signals: contentVerification.signals,
       is_spa: contentVerification.isSPA,
       detection_confidence: finalProtLevel.confidence,
       recommended_strategy: strategy.strategy,
+      expected_success_rate: strategy.successRate,
+      rate_limiting: multiReqData.hasRateLimiting,
+      progressive_blocking: multiReqData.hasProgressiveBlocking,
+      response_pattern: multiReqData.responsePattern,
       detection_details: allDetails,
       scan_log: scanLog,
+      scan_layers: 7,
+      signatures_count: Object.keys(PROTECTION_SIGNATURES).length,
     };
 
-    console.log(`[SCAN] === ADVANCED SCAN COMPLETE ===`);
+    console.log(`[SCAN] ╔══════════════════════════════════════╗`);
+    console.log(`[SCAN] ║   ULTIMATE SCAN v3.0 COMPLETE        ║`);
+    console.log(`[SCAN] ╚══════════════════════════════════════╝`);
     console.log(`[SCAN] URL: ${url}`);
-    console.log(`[SCAN] Protections: ${protNames.join(', ') || 'None'}`);
+    console.log(`[SCAN] Protections (${protNames.length}): ${protNames.join(', ') || 'None'}`);
     console.log(`[SCAN] Level: ${finalProtLevel.level.toUpperCase()}`);
     console.log(`[SCAN] Challenge: ${challengeType}`);
+    console.log(`[SCAN] CAPTCHA: ${captchaInfo.primary.name || 'None'}`);
     console.log(`[SCAN] Real Content: ${contentVerification.reached}`);
+    console.log(`[SCAN] Rate Limiting: ${multiReqData.hasRateLimiting}`);
     console.log(`[SCAN] Mode: ${strategy.mode}`);
     console.log(`[SCAN] Socket: ${socketUrl || 'None'}`);
     console.log(`[SCAN] Confidence: ${finalProtLevel.confidence}%`);
+    console.log(`[SCAN] Success Rate: ${strategy.successRate}`);
     console.log(`[SCAN] Strategy: ${strategy.strategy}`);
 
     return NextResponse.json({ scanResult: result });
