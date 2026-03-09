@@ -1959,7 +1959,7 @@ def run(url, duration_min, manual_socket=None):
         total_waves = max(1, duration_min * 2)
         WAVE_INTERVAL_ACTUAL = WAVE_INTERVAL
     
-    browser_wave_size = 20  # Visitors per wave in browser mode
+    browser_wave_size = 30  # Visitors per wave in browser mode (8GB RAM servers)
     total_visits = total_waves * (browser_wave_size if site_info['mode'] == 'browser' else WAVE_SIZE)
     
     print(f"\n{'='*60}", flush=True)
@@ -1969,9 +1969,10 @@ def run(url, duration_min, manual_socket=None):
     print(f"Protection: {site_info['protection'].upper()}", flush=True)
     if site_info['mode'] == 'browser':
         print(f"\U0001f310 BROWSER MODE: Real Chrome + Persistent Visitors", flush=True)
-        print(f"  Cookie Harvester: 8 contexts", flush=True)
+        print(f"  Cookie Harvester: 10 contexts", flush=True)
         print(f"  Visitors/wave: {browser_wave_size} (PERSISTENT - stay until end)", flush=True)
-        print(f"  Expected accumulation: ~{browser_wave_size * total_waves} total visitors", flush=True)
+        print(f"  Max per server: 120 (safe for 8GB RAM)", flush=True)
+        print(f"  Expected accumulation: ~{min(browser_wave_size * total_waves, 120)} active visitors", flush=True)
     else:
         print(f"TLS Spoof: {'curl_cffi \u2705' if HAS_CFFI else 'No \u274c'}", flush=True)
         print(f"Visitors/wave: {WAVE_SIZE} | Stay: {STAY_TIME}s", flush=True)
@@ -2005,9 +2006,9 @@ def run(url, duration_min, manual_socket=None):
     if site_info['mode'] == 'browser' and HAS_BROWSER:
         from browser_engine import start_harvester, run_browser_wave, cookie_pool
         
-        # Start cookie harvester in background (8 contexts solving challenges)
+        # Start cookie harvester in background (10 contexts for 8GB RAM servers)
         harvester_thread = start_harvester(
-            url, get_proxy_url, stop_event, num_contexts=8
+            url, get_proxy_url, stop_event, num_contexts=10
         )
         
         # Wait for initial cookies to be harvested
@@ -2030,16 +2031,36 @@ def run(url, duration_min, manual_socket=None):
             print(f"  \u2705 {cookie_pool.size()} cookies ready! Starting persistent visitors...", flush=True)
             
             # Launch waves of persistent visitors (they STAY until stop_event)
+            MAX_VISITORS_PER_SERVER = 120  # Safe limit for 8GB RAM (60% capacity)
             all_threads = []
             for wave in range(total_waves):
                 if stop_event.is_set(): break
                 
+                # Check if we hit the safe limit
+                current_active = stats.get('active_visitors', 0)
+                if current_active >= MAX_VISITORS_PER_SERVER:
+                    print(f"  \U0001f6e1\ufe0f Safe limit reached ({MAX_VISITORS_PER_SERVER} visitors). "
+                          f"Holding steady...", flush=True)
+                    # Wait but don't launch more - visitors are already inside
+                    for _ in range(WAVE_INTERVAL_ACTUAL):
+                        if stop_event.is_set(): break
+                        time.sleep(1)
+                        write_status()
+                    with lock:
+                        stats["waves_done"] += 1
+                    continue
+                
+                # Calculate how many more we can safely add
+                remaining_slots = MAX_VISITORS_PER_SERVER - current_active
+                actual_wave = min(browser_wave_size, remaining_slots)
+                
                 print(f"\n\U0001f30a Wave {wave+1}/{total_waves} - "
-                      f"Sending {browser_wave_size} PERSISTENT visitors...", flush=True)
+                      f"Sending {actual_wave} PERSISTENT visitors... "
+                      f"({current_active} already inside)", flush=True)
                 
                 launched = run_browser_wave(
                     wave, site_info, stats, lock, stop_event, 
-                    wave_size=browser_wave_size
+                    wave_size=actual_wave
                 )
                 
                 with lock:
