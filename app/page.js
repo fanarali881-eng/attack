@@ -257,11 +257,15 @@ export default function Home() {
         body: JSON.stringify({ url, proxies: buildProxyList() })
       });
       const scanData = await scanRes.json();
-      if (scanData.scanResult && scanData.scanResult.has_socketio && scanData.scanResult.socket_url) {
+      if (scanData.scanResult) {
+        // Always use Vercel scan result (has full 7-layer detection)
         detectedScanResult = scanData.scanResult;
-        addLog(`✅ تم اكتشاف Socket.IO: ${detectedScanResult.socket_url}`);
+        if (detectedScanResult.has_socketio && detectedScanResult.socket_url) {
+          addLog(`✅ تم اكتشاف Socket.IO: ${detectedScanResult.socket_url}`);
+        }
+        addLog(`✅ فحص ذكي: الوضع ${detectedScanResult.mode} | الحماية: ${detectedScanResult.protection || 'none'}`);
       } else {
-        // Fallback: VPS-based scan
+        // Fallback: VPS-based scan (only if Vercel scan completely failed)
         addLog(`🔄 فحص بديل من VPS...`);
         const scanRes2 = await fetch('/api/control', {
           method: 'POST',
@@ -271,15 +275,12 @@ export default function Home() {
         const scanData2 = await scanRes2.json();
         if (scanData2.scanResult) {
           detectedScanResult = scanData2.scanResult;
-        } else if (scanData.scanResult) {
-          // Use Vercel scan result even without socket (for mode/protection info)
-          detectedScanResult = scanData.scanResult;
         }
       }
       
       if (detectedScanResult) {
         setScanResult(detectedScanResult);
-        const modeNames = { socketio: '🔌 Socket.IO', cloudflare: '☁️ Cloudflare', http: '🌐 HTTP مباشر' };
+        const modeNames = { socketio: '🔌 Socket.IO', cloudflare: '☁️ Cloudflare', browser: '🌐 متصفح حقيقي', http: '🌐 HTTP مباشر' };
         const protNames = { cloudflare: 'Cloudflare', akamai: 'Akamai', datadome: 'DataDome', perimeterx: 'PerimeterX', none: 'لا يوجد' };
         addLog(`✅ الحماية: ${protNames[detectedScanResult.protection] || detectedScanResult.protection || 'غير معروف'} | الوضع: ${modeNames[detectedScanResult.mode] || detectedScanResult.mode}`);
         if (detectedScanResult.protection_level) addLog(`🛡️ مستوى الحماية: ${detectedScanResult.protection_level} | الوصول للمحتوى: ${detectedScanResult.real_content_reached ? '✅ نعم' : '❌ لا'}`);
@@ -301,8 +302,12 @@ export default function Home() {
     addLog(`📊 المدة: ${durationMin} دقيقة | الموجة: ${waveSize} زائر | البقاء: ${stayTime}ث | 👥 ~${activeVisitorsEstimate} نشط`);
 
     try {
-      // Pass socket URL if user set it manually OR if scan found any socket_url (regardless of mode)
-      const effectiveSocketUrl = socketUrl || (detectedScanResult?.socket_url ? detectedScanResult.socket_url : undefined);
+      // Only pass socket URL if: (1) user set it manually, OR (2) scan found it AND mode is socketio
+      // Do NOT pass protection service URLs (DataDome, etc.) as socket URLs
+      let effectiveSocketUrl = socketUrl || undefined;
+      if (!effectiveSocketUrl && detectedScanResult?.socket_url && detectedScanResult?.mode === 'socketio') {
+        effectiveSocketUrl = detectedScanResult.socket_url;
+      }
       const res = await fetch('/api/control', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-api-key': panelApiKey },
@@ -404,8 +409,8 @@ export default function Home() {
 
   const getStatusColor = (s) => ({ running:'#22c55e', starting:'#facc15', finished:'#3b82f6', idle:'#6b7280', offline:'#ef4444' }[s] || '#6b7280');
   const getStatusText = (s) => ({ running:'🟢 شغال', starting:'🟡 يبدأ...', finished:'🔵 انتهى', idle:'⚪ خامل', offline:'🔴 غير متصل' }[s] || '⚪');
-  const getModeText = (m) => ({ socketio:'🔌 SOCKET', cloudflare:'☁️ FLARE', http:'🌐 HTTP', socket_wave:'🔌 SOCKET', wave_cf:'☁️ FLARE', wave_fast:'🌐 HTTP', detecting:'🔍 SCAN' }[m] || m || '');
-  const getModeColor = (m) => ({ socketio:'#06b6d4', cloudflare:'#f97316', http:'#22c55e', socket_wave:'#06b6d4', wave_cf:'#f97316', wave_fast:'#22c55e', detecting:'#facc15' }[m] || '#6b7280');
+  const getModeText = (m) => ({ socketio:'🔌 SOCKET', cloudflare:'☁️ FLARE', browser:'🌐 BROWSER', http:'🌐 HTTP', socket_wave:'🔌 SOCKET', wave_cf:'☁️ FLARE', wave_fast:'🌐 HTTP', detecting:'🔍 SCAN' }[m] || m || '');
+  const getModeColor = (m) => ({ socketio:'#06b6d4', cloudflare:'#f97316', browser:'#a855f7', http:'#22c55e', socket_wave:'#06b6d4', wave_cf:'#f97316', wave_fast:'#22c55e', detecting:'#facc15' }[m] || '#6b7280');
 
   const ff = "'Courier New', 'Noto Sans Arabic', 'Segoe UI', Tahoma, monospace";
   const st = {

@@ -524,6 +524,10 @@ async function safeFetch(targetUrl, timeout = 15000, uaIndex = 0) {
 
 async function testSocketIO(url) {
   try {
+    // Skip blacklisted URLs (protection services, analytics, CDNs)
+    if (isBlacklistedSocketUrl(url)) {
+      return false;
+    }
     const sioUrl = `${url.replace(/\/$/, '')}/socket.io/?EIO=4&transport=polling`;
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 8000);
@@ -544,6 +548,29 @@ async function testSocketIO(url) {
   }
 }
 
+// Blacklist of domains that should NEVER be treated as Socket.IO endpoints
+const SOCKET_URL_BLACKLIST = [
+  'datadome', 'data-flow-apis', 'dataflow', 'captcha-delivery',
+  'cloudflare', 'cloudflareinsights', 'challenges.cloudflare',
+  'akamai', 'edgekey', 'edgesuite', 'akadns',
+  'imperva', 'incapsula',
+  'perimeterx', 'px-cdn', 'px-cloud', 'pxchk', 'human.com',
+  'kasada',
+  'shapesecurity',
+  'google-analytics', 'googletagmanager', 'googleapis', 'gstatic',
+  'facebook.com', 'fbcdn', 'connect.facebook',
+  'doubleclick', 'googlesyndication', 'adservice',
+  'hotjar', 'clarity.ms', 'segment.io', 'mixpanel', 'amplitude',
+  'sentry.io', 'newrelic', 'datadog', 'bugsnag',
+  'recaptcha', 'hcaptcha', 'turnstile',
+  'cdn.jsdelivr', 'cdnjs.cloudflare', 'unpkg.com',
+];
+
+function isBlacklistedSocketUrl(url) {
+  const lower = url.toLowerCase();
+  return SOCKET_URL_BLACKLIST.some(bl => lower.includes(bl));
+}
+
 function extractSocketUrls(content) {
   const urls = new Set();
   const patterns = [
@@ -561,7 +588,7 @@ function extractSocketUrls(content) {
     let match;
     while ((match = pattern.exec(content)) !== null) {
       const url = match[1];
-      if (url.startsWith('http') && !url.includes('socket.io') && !url.includes('cdn')) {
+      if (url.startsWith('http') && !url.includes('socket.io') && !url.includes('cdn') && !isBlacklistedSocketUrl(url)) {
         urls.add(url);
       }
     }
@@ -856,14 +883,16 @@ async function deepScanJavaScript(htmlContent, baseUrl, existingDetected, scanLo
         }
       }
 
-      // NexaFlow detection
+      // NexaFlow / DataDome API detection (NOT Socket.IO - these are protection APIs)
       if (jsContent.includes('nf-api-key') || jsContent.includes('data-flow-apis') || jsContent.includes('nexaflow')) {
-        const nfMatch = jsContent.match(/["'](https?:\/\/[^"']*data-flow-apis[^"']*)["']/i);
-        const nfSocketUrl = nfMatch ? new URL(nfMatch[1]).origin : 'https://data-flow-apis.cc';
-        hasSocketIO = true;
-        socketUrl = nfSocketUrl;
-        scanLog.push(`[JS-DEEP] NexaFlow detected! Socket: ${nfSocketUrl}`);
-        break;
+        // data-flow-apis.cc is a DataDome/NexaFlow analytics endpoint, NOT a Socket.IO server
+        // Do NOT treat it as Socket.IO - it will cause wrong mode selection
+        if (!detected.includes('datadome')) {
+          detected.push('datadome');
+        }
+        details.push(`[JS-DEEP] DataDome/NexaFlow API detected (data-flow-apis) - NOT Socket.IO`);
+        scanLog.push(`[JS-DEEP] DataDome/NexaFlow API found - correctly identified as protection, not Socket.IO`);
+        // Do NOT set hasSocketIO or socketUrl here
       }
 
       // Socket URL search in JS
@@ -1076,10 +1105,21 @@ function calculateProtectionLevel(detected, challengeType, contentReached, statu
 // ╚══════════════════════════════════════════════════════════════════╝
 
 function recommendStrategy(primary, level, challengeType, hasSocket, socketUrl, captchaInfo, detected) {
-  if (hasSocket && socketUrl) {
+  const protName = PROTECTION_SIGNATURES[primary]?.name || primary;
+  const allProtNames = detected.map(p => PROTECTION_SIGNATURES[p]?.name || p).join(' + ');
+
+  // Strong protections (extreme/high tier) that REQUIRE real browser - Socket.IO won't help
+  const strongProtections = ['datadome', 'kasada', 'shape_security', 'perimeterx', 'akamai'];
+  const hasStrongProtection = detected.some(p => strongProtections.includes(p));
+
+  // Socket.IO should ONLY be used when:
+  // 1. A verified socket endpoint exists
+  // 2. No strong protection is detected (strong protections need real browsers)
+  // 3. The socket URL belongs to the actual target site, not a protection service
+  if (hasSocket && socketUrl && !hasStrongProtection && level !== 'extreme' && level !== 'high') {
     return {
       mode: 'socketio',
-      strategy: `Socket.IO mode - connect directly to ${socketUrl}. WebSocket bypasses WAF completely. Best mode for maximum impact.`,
+      strategy: `Socket.IO mode - connect directly to ${socketUrl}. WebSocket bypasses WAF completely.`,
       successRate: '90-99%',
     };
   }
@@ -1092,27 +1132,24 @@ function recommendStrategy(primary, level, challengeType, hasSocket, socketUrl, 
     };
   }
 
-  const protName = PROTECTION_SIGNATURES[primary]?.name || primary;
-  const allProtNames = detected.map(p => PROTECTION_SIGNATURES[p]?.name || p).join(' + ');
-
-  if (level === 'extreme') {
+  if (level === 'extreme' || hasStrongProtection) {
     return {
-      mode: 'cloudflare',
-      strategy: `EXTREME protection (${allProtNames}). Challenge: ${challengeType}. Headless browser (Playwright) + CAPTCHA solver required. curl_cffi alone will NOT work. Consider Socket.IO bypass if available.`,
-      successRate: '5-20%',
+      mode: 'browser',
+      strategy: `EXTREME protection (${allProtNames}). Challenge: ${challengeType}. Real browser (Playwright stealth) required. CAPTCHA solver may be needed.`,
+      successRate: '30-60%',
     };
   } else if (level === 'high') {
     const captchaNote = captchaInfo?.type ? ` CAPTCHA: ${captchaInfo.name} (solver needed).` : '';
     return {
-      mode: 'cloudflare',
-      strategy: `HIGH protection (${allProtNames}). Challenge: ${challengeType}. curl_cffi TLS spoof + FlareSolverr + per-proxy cookies.${captchaNote}`,
-      successRate: '20-50%',
+      mode: 'browser',
+      strategy: `HIGH protection (${allProtNames}). Challenge: ${challengeType}. Real browser (Playwright stealth) + FlareSolverr fallback.${captchaNote}`,
+      successRate: '40-70%',
     };
   } else if (level === 'medium') {
     return {
-      mode: 'cloudflare',
-      strategy: `MEDIUM protection (${allProtNames}). Challenge: ${challengeType}. curl_cffi TLS spoof should bypass most challenges. FlareSolverr as fallback.`,
-      successRate: '50-80%',
+      mode: 'browser',
+      strategy: `MEDIUM protection (${allProtNames}). Challenge: ${challengeType}. Real browser with stealth mode should bypass most challenges.`,
+      successRate: '60-85%',
     };
   } else {
     return {
@@ -1289,11 +1326,27 @@ export async function POST(req) {
       }
     }
 
-    // Use candidate if nothing verified
+    // Use candidate if nothing verified - BUT filter out protection/analytics URLs
+    const SOCKET_BLACKLIST = [
+      'datadome', 'data-flow', 'dataflow', 'captcha', 'challenge',
+      'cloudflare', 'akamai', 'imperva', 'incapsula', 'perimeterx', 'human.com',
+      'kasada', 'shape', 'distil', 'botguard', 'recaptcha', 'hcaptcha',
+      'google-analytics', 'googletagmanager', 'gtag', 'analytics',
+      'facebook.com', 'fbcdn', 'doubleclick', 'googlesyndication',
+      'hotjar', 'clarity.ms', 'segment.io', 'mixpanel', 'amplitude',
+      'sentry.io', 'newrelic', 'datadog', 'cdn.', 'static.',
+    ];
     if (!hasSocketIO && candidateSocketUrl) {
-      hasSocketIO = true;
-      socketUrl = candidateSocketUrl;
-      scanLog.push(`[SOCKET] Unverified candidate (CF may block): ${candidateSocketUrl}`);
+      const candidateLower = candidateSocketUrl.toLowerCase();
+      const isBlacklisted = SOCKET_BLACKLIST.some(bl => candidateLower.includes(bl));
+      if (isBlacklisted) {
+        scanLog.push(`[SOCKET] ❌ Candidate rejected (protection/analytics URL): ${candidateSocketUrl}`);
+        candidateSocketUrl = null;
+      } else {
+        hasSocketIO = true;
+        socketUrl = candidateSocketUrl;
+        scanLog.push(`[SOCKET] Unverified candidate: ${candidateSocketUrl}`);
+      }
     }
 
     // Try frontend deployments if blocked

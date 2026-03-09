@@ -821,9 +821,38 @@ def test_cf_cookies(url, cookies, user_agent, proxy=None):
         return False
 
 
+# ============ SOCKET.IO BLACKLIST ============
+# Blacklist of domains that should NEVER be treated as Socket.IO endpoints
+SOCKET_BLACKLIST = [
+    'datadome', 'data-flow-apis', 'dataflow', 'captcha-delivery',
+    'cloudflare', 'cloudflareinsights', 'challenges.cloudflare',
+    'akamai', 'edgekey', 'edgesuite', 'akadns',
+    'imperva', 'incapsula',
+    'perimeterx', 'px-cdn', 'px-cloud', 'pxchk', 'human.com',
+    'kasada', 'shapesecurity',
+    'google-analytics', 'googletagmanager', 'googleapis', 'gstatic',
+    'facebook.com', 'fbcdn', 'connect.facebook',
+    'doubleclick', 'googlesyndication', 'adservice',
+    'hotjar', 'clarity.ms', 'segment.io', 'mixpanel', 'amplitude',
+    'sentry.io', 'newrelic', 'datadog', 'bugsnag',
+    'recaptcha', 'hcaptcha', 'turnstile',
+    'cdn.jsdelivr', 'cdnjs.cloudflare', 'unpkg.com',
+    'nexaflow', 'nf-api',
+]
+
+def is_blacklisted_socket_url(url):
+    """Check if URL belongs to a protection/analytics service (not a real Socket.IO server)."""
+    lower = url.lower()
+    return any(bl in lower for bl in SOCKET_BLACKLIST)
+
+
 # ============ DETECTION ============
 def verify_socketio(url):
     """Verify if a URL has a real Socket.IO endpoint. Uses curl_cffi to bypass Cloudflare."""
+    # Check blacklist first - protection/analytics URLs are never Socket.IO
+    if is_blacklisted_socket_url(url):
+        print(f"  [SKIP] Blacklisted URL (protection/analytics): {url}", flush=True)
+        return False
     try:
         sio_url = f"{url.rstrip('/')}/socket.io/?EIO=4&transport=polling"
         # Try curl_cffi first (bypasses Cloudflare)
@@ -1227,18 +1256,27 @@ def detect_site(url, manual_socket=None):
     STRONG_PROTECTIONS = ["datadome", "kasada", "perimeterx", "shape"]
     MEDIUM_PROTECTIONS = ["cloudflare", "akamai", "imperva"]
     
-    if result["has_socketio"]:
+    # Validate Socket.IO URL against blacklist before using it
+    if result["has_socketio"] and result["socket_url"]:
+        if is_blacklisted_socket_url(result["socket_url"]):
+            print(f"  [FIX] Socket URL is blacklisted (protection service): {result['socket_url']}", flush=True)
+            result["has_socketio"] = False
+            result["socket_url"] = None
+    
+    # Socket.IO should NOT override strong protections
+    if result["has_socketio"] and result["protection"] not in STRONG_PROTECTIONS:
         result["mode"] = "socketio"
         if not result["socket_url"]:
             result["socket_url"] = base
     elif result["protection"] in STRONG_PROTECTIONS:
-        # Always use browser for extreme protections
+        # Always use browser for extreme protections - even if Socket.IO found
         result["mode"] = "browser"
+        print(f"  [MODE] Browser mode forced for {result['protection']} protection", flush=True)
     elif result["protection"] in MEDIUM_PROTECTIONS:
-        # For medium protections: try curl_cffi first, fallback to browser
-        # Check if cf_clearance cookies are IP-bound (per-proxy mode)
-        result["mode"] = "cloudflare"  # Will auto-upgrade to browser if curl_cffi fails
+        # For Cloudflare/Akamai: use browser mode (most reliable)
+        result["mode"] = "browser"
         result["browser_fallback"] = True
+        print(f"  [MODE] Browser mode for {result['protection']} protection", flush=True)
     else:
         result["mode"] = "http"
     
@@ -1277,17 +1315,21 @@ def extract_socket_url(html):
                     'mui.com', 'radix-ui', 'mediawiki']
             if any(s in url_m.lower() for s in skip):
                 continue
+            # Check blacklist - protection/analytics URLs are NOT Socket.IO
+            if is_blacklisted_socket_url(url_m):
+                print(f"  [SKIP] Blacklisted URL (protection/analytics): {url_m}", flush=True)
+                continue
             print(f"  [LINK] Found socket URL: {url_m} (with token)", flush=True)
             return (url_m, tok_m)
     
     # Then try URL-only patterns
     for pattern in [
-        r'(?:const|let|var)\s+\w*(?:SOCKET|socket|server|api|SERVER|API)\w*\s*=\s*[\'"]([\'"]+)[\'"]',
-        r'io\([\'"]([\'"]+)[\'"]',
-        r'connect\([\'"]([\'"]+)[\'"]',
-        r'socketUrl\s*[:=]\s*[\'"]([\'"]+)[\'"]',
-        r'SOCKET_URL\s*[:=]\s*[\'"]([\'"]+)[\'"]',
-        r'serverUrl\s*[:=]\s*[\'"]([\'"]+)[\'"]',
+        r'(?:const|let|var)\s+\w*(?:SOCKET|socket|server|api|SERVER|API)\w*\s*=\s*[\'"]([\'"])+[\'"]',
+        r'io\([\'"]([\'"])+[\'"]',
+        r'connect\([\'"]([\'"])+[\'"]',
+        r'socketUrl\s*[:=]\s*[\'"]([\'"])+[\'"]',
+        r'SOCKET_URL\s*[:=]\s*[\'"]([\'"])+[\'"]',
+        r'serverUrl\s*[:=]\s*[\'"]([\'"])+[\'"]',
     ]:
         matches = re.findall(pattern, html)
         for m in matches:
@@ -1296,6 +1338,10 @@ def extract_socket_url(html):
                         'fonts.', 'github', 'wikipedia', 'w3.org', 'apache.org', 'reactjs',
                         'mui.com', 'radix-ui', 'mediawiki']
                 if any(s in m.lower() for s in skip):
+                    continue
+                # Check blacklist
+                if is_blacklisted_socket_url(m):
+                    print(f"  [SKIP] Blacklisted URL (protection/analytics): {m}", flush=True)
                     continue
                 print(f"  [LINK] Found socket URL: {m}", flush=True)
                 return (m, None)
@@ -1974,10 +2020,12 @@ def run(url, duration_min, manual_socket=None):
         print(f"  Max per server: 120 (safe for 8GB RAM)", flush=True)
         print(f"  Expected accumulation: ~{min(browser_wave_size * total_waves, 120)} active visitors", flush=True)
     else:
-        print(f"TLS Spoof: {'curl_cffi \u2705' if HAS_CFFI else 'No \u274c'}", flush=True)
+        tls_status = 'curl_cffi \u2705' if HAS_CFFI else 'No \u274c'
+        print(f"TLS Spoof: {tls_status}", flush=True)
         print(f"Visitors/wave: {WAVE_SIZE} | Stay: {STAY_TIME}s", flush=True)
         print(f"Expected: ~{WAVE_SIZE} active visitors", flush=True)
-    print(f"CAPTCHA Solver: {'Yes \u2705' if CAPTCHA_API_KEY else 'No (set CAPTCHA_API_KEY)'}", flush=True)
+    captcha_status = 'Yes \u2705' if CAPTCHA_API_KEY else 'No (set CAPTCHA_API_KEY)'
+    print(f"CAPTCHA Solver: {captcha_status}", flush=True)
     if site_info['socket_url']:
         print(f"Socket: {site_info['socket_url']}", flush=True)
     if site_info['mode'] == 'cloudflare':
