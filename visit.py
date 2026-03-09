@@ -2049,6 +2049,7 @@ def run(url, duration_min, manual_socket=None):
     print(f"{'='*60}\n", flush=True)
     
     stats["start_time"] = time.time()
+    os.environ['ATTACK_START_TIME'] = str(stats["start_time"])
     stats["target"] = total_visits
     stats["total_waves"] = total_waves
     stats["duration_min"] = duration_min

