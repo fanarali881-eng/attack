@@ -1278,7 +1278,7 @@ def detect_site(url, manual_socket=None):
         result["browser_fallback"] = True
         print(f"  [MODE] Browser mode for {result['protection']} protection", flush=True)
     else:
-        result["mode"] = "http"
+        result["mode"] = "browser"
     
     # Step 6: Discover pages
     result["pages"] = discover_pages(url, base, html_content)

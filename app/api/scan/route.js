@@ -1126,8 +1126,8 @@ function recommendStrategy(primary, level, challengeType, hasSocket, socketUrl, 
 
   if (primary === 'none' || level === 'none') {
     return {
-      mode: 'http',
-      strategy: 'Direct HTTP mode - no protection detected. Use curl_cffi with TLS spoofing + Saudi proxy for maximum throughput.',
+      mode: 'browser',
+      strategy: 'Browser mode - real Playwright browser for NexaFlow-compatible visits. No protection detected.',
       successRate: '95-100%',
     };
   }
@@ -1153,8 +1153,8 @@ function recommendStrategy(primary, level, challengeType, hasSocket, socketUrl, 
     };
   } else {
     return {
-      mode: 'http',
-      strategy: `LOW protection (${allProtNames}). curl_cffi with real browser TLS fingerprint + Saudi proxy. Should work without special bypass.`,
+      mode: 'browser',
+      strategy: `LOW protection (${allProtNames}). Real browser (Playwright stealth) for NexaFlow-compatible visits.`,
       successRate: '80-95%',
     };
   }
