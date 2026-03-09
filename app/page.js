@@ -200,8 +200,11 @@ export default function Home() {
           const totalRate = maxElapsed > 0 ? Math.round((sumVisits / maxElapsed) * 60) : 0;
           const totalActive = filtered.reduce((sum, s) => sum + (s.active_visitors || 0), 0);
           const peakActive = Math.max(...filtered.map(s => s.peak_active || 0), 0);
-          setAttackSummary({ target: totalVisitsEstimate, visits: sumVisits, errors: sumErrors, elapsed: maxElapsed, rate: totalRate, activeVisitors: totalActive, peakActive });
-          addLog(`✅ انتهت جميع العمليات | ${sumVisits} زيارة | ${sumErrors} خطأ | ${formatTime(maxElapsed)} | ${totalRate}/دقيقة`);
+          const sumVerified = filtered.reduce((sum, s) => sum + (s.verified_visitors || 0), 0);
+          const sumBlocked = filtered.reduce((sum, s) => sum + (s.blocked_visitors || 0), 0);
+          const peakVerified = Math.max(...filtered.map(s => s.peak_verified || 0), 0);
+          setAttackSummary({ target: totalVisitsEstimate, visits: sumVisits, errors: sumErrors, elapsed: maxElapsed, rate: totalRate, activeVisitors: totalActive, peakActive, verifiedVisitors: sumVerified, blockedVisitors: sumBlocked, peakVerified });
+          addLog(`✅ انتهت جميع العمليات | ${sumVisits} زيارة | ✅ ${sumVerified} متحقق | 🚫 ${sumBlocked} محظور | ${sumErrors} خطأ | ${formatTime(maxElapsed)} | ${totalRate}/دقيقة`);
         }
       }
     } catch (err) {}
@@ -279,8 +282,12 @@ export default function Home() {
         const modeNames = { socketio: '🔌 Socket.IO', cloudflare: '☁️ Cloudflare', http: '🌐 HTTP مباشر' };
         const protNames = { cloudflare: 'Cloudflare', akamai: 'Akamai', datadome: 'DataDome', perimeterx: 'PerimeterX', none: 'لا يوجد' };
         addLog(`✅ الحماية: ${protNames[detectedScanResult.protection] || detectedScanResult.protection || 'غير معروف'} | الوضع: ${modeNames[detectedScanResult.mode] || detectedScanResult.mode}`);
+        if (detectedScanResult.protection_level) addLog(`🛡️ مستوى الحماية: ${detectedScanResult.protection_level} | الوصول للمحتوى: ${detectedScanResult.real_content_reached ? '✅ نعم' : '❌ لا'}`);
+        if (detectedScanResult.protection_names?.length > 0) addLog(`🔍 حمايات مكتشفة: ${detectedScanResult.protection_names.join(', ')}`);
+        if (detectedScanResult.challenge_type && detectedScanResult.challenge_type !== 'none') addLog(`⚠️ تحدي: ${detectedScanResult.challenge_type}`);
         if (detectedScanResult.socket_url) addLog(`🔌 Socket URL مكتشف: ${detectedScanResult.socket_url}`);
-        if (detectedScanResult.captcha_type) addLog(`🔑 CAPTCHA: ${detectedScanResult.captcha_type}`);
+        if (detectedScanResult.captcha_type || detectedScanResult.captcha_info?.type) addLog(`🔑 CAPTCHA: ${detectedScanResult.captcha_info?.type || detectedScanResult.captcha_type}`);
+        if (detectedScanResult.recommended_strategy) addLog(`💡 الاستراتيجية: ${detectedScanResult.recommended_strategy}`);
       } else {
         addLog(`⚠️ فشل الفحص - سيتم استخدام الوضع التلقائي`);
       }
@@ -415,6 +422,8 @@ export default function Home() {
   const totalVisits = serverStatus.reduce((sum, x) => sum + (x.visits || 0), 0);
   const totalErrors = serverStatus.reduce((sum, x) => sum + (x.errors || 0), 0);
   const totalActiveVisitors = serverStatus.reduce((sum, x) => sum + (x.active_visitors || 0), 0);
+  const totalVerifiedVisitors = serverStatus.reduce((sum, x) => sum + (x.verified_visitors || 0), 0);
+  const totalBlockedVisitors = serverStatus.reduce((sum, x) => sum + (x.blocked_visitors || 0), 0);
 
   const phaseText = { idle: '⚪ جاهز', scanning: '🔍 يفحص الموقع...', starting: '🚀 يبدأ الهجوم...', running: '⚡ شغال', finished: '✅ انتهى' };
   const phaseColor = { idle: '#6b7280', scanning: '#facc15', starting: '#f97316', running: '#22c55e', finished: '#3b82f6' };
@@ -514,9 +523,60 @@ export default function Home() {
                 <div style={{ fontSize:'10px', color:'#9ca3af', marginTop:'4px' }}>صفحات</div>
               </div>
             </div>
+
+            {/* NEW: Advanced Detection Results */}
+            {scanResult.protection_level && (
+              <div style={{ display:'grid', gridTemplateColumns:'repeat(3, 1fr)', gap:'10px', marginTop:'10px' }}>
+                <div style={{ textAlign:'center', padding:'10px', backgroundColor:'#000', borderRadius:'8px', border:`1px solid ${{none:'#22c55e',low:'#22c55e',medium:'#facc15',high:'#f97316',extreme:'#ef4444'}[scanResult.protection_level] || '#374151'}` }}>
+                  <div style={{ fontSize:'16px', fontWeight:'bold', color: {none:'#22c55e',low:'#22c55e',medium:'#facc15',high:'#f97316',extreme:'#ef4444'}[scanResult.protection_level] || '#6b7280' }}>
+                    {{none:'✅ بدون',low:'🟢 خفيف',medium:'🟡 متوسط',high:'🟠 قوي',extreme:'🔴 شديد'}[scanResult.protection_level] || scanResult.protection_level}
+                  </div>
+                  <div style={{ fontSize:'10px', color:'#9ca3af', marginTop:'4px' }}>مستوى الحماية</div>
+                </div>
+                <div style={{ textAlign:'center', padding:'10px', backgroundColor:'#000', borderRadius:'8px', border:'1px solid #374151' }}>
+                  <div style={{ fontSize:'16px', fontWeight:'bold', color: scanResult.real_content_reached ? '#22c55e' : '#ef4444' }}>
+                    {scanResult.real_content_reached ? '✅ وصل' : '❌ محظور'}
+                  </div>
+                  <div style={{ fontSize:'10px', color:'#9ca3af', marginTop:'4px' }}>الوصول للمحتوى</div>
+                </div>
+                <div style={{ textAlign:'center', padding:'10px', backgroundColor:'#000', borderRadius:'8px', border:'1px solid #374151' }}>
+                  <div style={{ fontSize:'16px', fontWeight:'bold', color:'#a78bfa' }}>{scanResult.detection_confidence || 0}%</div>
+                  <div style={{ fontSize:'10px', color:'#9ca3af', marginTop:'4px' }}>دقة الكشف</div>
+                </div>
+              </div>
+            )}
+
+            {/* Protection Names */}
+            {scanResult.protection_names && scanResult.protection_names.length > 0 && (
+              <div style={{ marginTop:'10px', padding:'8px', backgroundColor:'#000', borderRadius:'6px', border:'1px solid #374151' }}>
+                <div style={{ fontSize:'11px', color:'#f97316', marginBottom:'4px' }}>🛡️ الحمايات المكتشفة:</div>
+                <div style={{ display:'flex', flexWrap:'wrap', gap:'6px' }}>
+                  {scanResult.protection_names.map((name, i) => (
+                    <span key={i} style={{ fontSize:'11px', padding:'3px 10px', borderRadius:'12px', backgroundColor:'#1a1033', color:'#f97316', border:'1px solid #7c3aed' }}>{name}</span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Challenge & CAPTCHA Info */}
+            {scanResult.challenge_type && scanResult.challenge_type !== 'none' && (
+              <div style={{ marginTop:'8px', padding:'6px 10px', backgroundColor:'#451a03', borderRadius:'6px', border:'1px solid #f97316' }}>
+                <span style={{ fontSize:'11px', color:'#fb923c' }}>⚠️ تحدي: {{js_challenge:'JS Challenge',managed_challenge:'Managed Challenge',captcha:'CAPTCHA',interactive_captcha:'Interactive CAPTCHA',blocked:'محظور بالكامل',sensor_challenge:'Sensor Challenge'}[scanResult.challenge_type] || scanResult.challenge_type}</span>
+              </div>
+            )}
+
+            {scanResult.captcha_info?.type && (
+              <div style={{ marginTop:'6px', fontSize:'11px', color:'#f59e0b' }}>🔑 CAPTCHA: {scanResult.captcha_info.type} {scanResult.captcha_info.siteKey ? `(Key: ${scanResult.captcha_info.siteKey.substring(0,15)}...)` : ''}</div>
+            )}
+
             {scanResult.socket_url && <div style={{ marginTop:'8px', fontSize:'11px', color:'#06b6d4' }}>🔌 Socket: {scanResult.socket_url}</div>}
-            {scanResult.protection && scanResult.protection !== 'none' && <div style={{ marginTop:'4px', fontSize:'11px', color:'#f97316' }}>🛡️ حماية: {scanResult.protection.toUpperCase()}</div>}
-            {scanResult.captcha_type && <div style={{ marginTop:'4px', fontSize:'11px', color:'#f59e0b' }}>🔑 CAPTCHA: {scanResult.captcha_type}</div>}
+
+            {/* Strategy Recommendation */}
+            {scanResult.recommended_strategy && (
+              <div style={{ marginTop:'8px', padding:'8px', backgroundColor:'#052e16', borderRadius:'6px', border:'1px solid #166534' }}>
+                <div style={{ fontSize:'11px', color:'#4ade80' }}>💡 {scanResult.recommended_strategy}</div>
+              </div>
+            )}
           </div>
         )}
 
@@ -563,10 +623,20 @@ export default function Home() {
               </div>
             </div>
 
-            {/* Active Visitors Banner - Always visible */}
-            <div style={{ textAlign:'center', padding:'14px', marginBottom:'10px', backgroundColor: totalActiveVisitors > 0 ? '#052e16' : '#1a1a2e', border:`1px solid ${totalActiveVisitors > 0 ? '#22c55e' : '#374151'}`, borderRadius:'8px' }}>
-              <div style={{ fontSize:'30px', fontWeight:'bold', color: totalActiveVisitors > 0 ? '#22c55e' : '#6b7280' }}>👥 {totalActiveVisitors}</div>
-              <div style={{ fontSize:'12px', color: totalActiveVisitors > 0 ? '#4ade80' : '#6b7280' }}>زائر نشط الآن</div>
+            {/* Active Visitors Banner - Shows verified + blocked */}
+            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:'8px', marginBottom:'10px' }}>
+              <div style={{ textAlign:'center', padding:'14px', backgroundColor: totalVerifiedVisitors > 0 ? '#052e16' : '#1a1a2e', border:`1px solid ${totalVerifiedVisitors > 0 ? '#22c55e' : '#374151'}`, borderRadius:'8px' }}>
+                <div style={{ fontSize:'28px', fontWeight:'bold', color: totalVerifiedVisitors > 0 ? '#22c55e' : '#6b7280' }}>✅ {totalVerifiedVisitors}</div>
+                <div style={{ fontSize:'11px', color: totalVerifiedVisitors > 0 ? '#4ade80' : '#6b7280' }}>زائر متحقق الآن</div>
+              </div>
+              <div style={{ textAlign:'center', padding:'14px', backgroundColor: totalActiveVisitors > 0 ? '#0a1628' : '#1a1a2e', border:`1px solid ${totalActiveVisitors > 0 ? '#06b6d4' : '#374151'}`, borderRadius:'8px' }}>
+                <div style={{ fontSize:'28px', fontWeight:'bold', color: totalActiveVisitors > 0 ? '#06b6d4' : '#6b7280' }}>👥 {totalActiveVisitors}</div>
+                <div style={{ fontSize:'11px', color: totalActiveVisitors > 0 ? '#67e8f9' : '#6b7280' }}>إجمالي نشط</div>
+              </div>
+              <div style={{ textAlign:'center', padding:'14px', backgroundColor: totalBlockedVisitors > 0 ? '#450a0a' : '#1a1a2e', border:`1px solid ${totalBlockedVisitors > 0 ? '#ef4444' : '#374151'}`, borderRadius:'8px' }}>
+                <div style={{ fontSize:'28px', fontWeight:'bold', color: totalBlockedVisitors > 0 ? '#ef4444' : '#6b7280' }}>🚫 {totalBlockedVisitors}</div>
+                <div style={{ fontSize:'11px', color: totalBlockedVisitors > 0 ? '#fca5a5' : '#6b7280' }}>محظور</div>
+              </div>
             </div>
 
             {/* Server Cards */}
@@ -579,7 +649,7 @@ export default function Home() {
                     <span style={st.badge(getStatusColor(sv.status))}>{getStatusText(sv.status)}</span>
                   </div>
                 </div>
-                {sv.active_visitors > 0 && <div style={{ fontSize:'11px', color:'#06b6d4', textAlign:'center', marginBottom:'6px' }}>👥 {sv.active_visitors} نشط | 🌊 {sv.waves_done || 0}/{sv.total_waves || 0}</div>}
+                {sv.active_visitors > 0 && <div style={{ fontSize:'11px', color:'#06b6d4', textAlign:'center', marginBottom:'6px' }}>✅ {sv.verified_visitors || 0} متحقق | 👥 {sv.active_visitors} نشط | 🚫 {sv.blocked_visitors || 0} محظور | 🌊 {sv.waves_done || 0}/{sv.total_waves || 0}</div>}
                 {sv.rate > 0 && <div style={{ fontSize:'11px', color:'#4ade80', textAlign:'center', marginBottom:'6px' }}>⚡ {sv.rate}/دقيقة</div>}
                 {sv.status !== 'offline' && sv.status !== 'idle' && (
                   <>
@@ -608,11 +678,10 @@ export default function Home() {
 
             {/* Totals */}
             {serverStatus.some(x => x.visits > 0) && (
-              <div style={{ display:'grid', gridTemplateColumns:'repeat(4, 1fr)', gap:'10px', marginTop:'12px', padding:'10px', backgroundColor:'#111827', borderRadius:'8px', border:'1px solid #166534' }}>
+              <div style={{ display:'grid', gridTemplateColumns:'repeat(3, 1fr)', gap:'10px', marginTop:'12px', padding:'10px', backgroundColor:'#111827', borderRadius:'8px', border:'1px solid #166534' }}>
                 {[
                   { v: totalVisits.toLocaleString(), l:'إجمالي الزيارات', c:'#22c55e' },
                   { v: totalVisitsEstimate.toLocaleString(), l:'الهدف', c:'#9ca3af' },
-                  { v: totalActiveVisitors, l:'نشطين الآن', c:'#06b6d4' },
                   { v: totalErrors, l:'أخطاء', c: totalErrors > 0 ? '#ef4444' : '#22c55e' },
                 ].map((x, i) => (
                   <div key={i} style={{ textAlign:'center' }}>
@@ -620,6 +689,22 @@ export default function Home() {
                     <div style={{ fontSize:'11px', color:'#9ca3af' }}>{x.l}</div>
                   </div>
                 ))}
+              </div>
+            )}
+            {/* Verified vs Blocked Bar */}
+            {serverStatus.some(x => x.visits > 0) && (totalVerifiedVisitors > 0 || totalBlockedVisitors > 0) && (
+              <div style={{ marginTop:'8px', padding:'8px', backgroundColor:'#111827', borderRadius:'8px', border:'1px solid #166534' }}>
+                <div style={{ display:'flex', justifyContent:'space-between', marginBottom:'4px' }}>
+                  <span style={{ fontSize:'11px', color:'#22c55e' }}>✅ متحقق: {totalVerifiedVisitors}</span>
+                  <span style={{ fontSize:'11px', color:'#ef4444' }}>🚫 محظور: {totalBlockedVisitors}</span>
+                </div>
+                <div style={{ width:'100%', height:'8px', backgroundColor:'#1f2937', borderRadius:'4px', overflow:'hidden', display:'flex' }}>
+                  <div style={{ height:'100%', backgroundColor:'#22c55e', width:`${totalActiveVisitors > 0 ? (totalVerifiedVisitors / totalActiveVisitors * 100) : 0}%`, transition:'width 0.5s' }}></div>
+                  <div style={{ height:'100%', backgroundColor:'#ef4444', width:`${totalActiveVisitors > 0 ? (totalBlockedVisitors / totalActiveVisitors * 100) : 0}%`, transition:'width 0.5s' }}></div>
+                </div>
+                <div style={{ textAlign:'center', fontSize:'10px', color:'#9ca3af', marginTop:'4px' }}>
+                  نسبة النجاح: {totalActiveVisitors > 0 ? ((totalVerifiedVisitors / totalActiveVisitors) * 100).toFixed(1) : 0}%
+                </div>
               </div>
             )}
 
@@ -641,6 +726,21 @@ export default function Home() {
                     </div>
                   ))}
                 </div>
+                {/* Verified vs Blocked Summary */}
+                <div style={{ display:'grid', gridTemplateColumns:'repeat(3, 1fr)', gap:'8px', marginTop:'10px' }}>
+                  <div style={{ padding:'10px', backgroundColor:'#052e16', borderRadius:'8px', border:'1px solid #22c55e' }}>
+                    <div style={{ fontSize:'20px', fontWeight:'bold', color:'#22c55e' }}>✅ {(attackSummary.verifiedVisitors || 0).toLocaleString()}</div>
+                    <div style={{ fontSize:'10px', color:'#4ade80', marginTop:'3px' }}>زيارات متحققة</div>
+                  </div>
+                  <div style={{ padding:'10px', backgroundColor:'#450a0a', borderRadius:'8px', border:'1px solid #ef4444' }}>
+                    <div style={{ fontSize:'20px', fontWeight:'bold', color:'#ef4444' }}>🚫 {(attackSummary.blockedVisitors || 0).toLocaleString()}</div>
+                    <div style={{ fontSize:'10px', color:'#fca5a5', marginTop:'3px' }}>محظورة</div>
+                  </div>
+                  <div style={{ padding:'10px', backgroundColor:'#111827', borderRadius:'8px', border:'1px solid #f97316' }}>
+                    <div style={{ fontSize:'20px', fontWeight:'bold', color:'#f97316' }}>👥 {(attackSummary.peakVerified || 0).toLocaleString()}</div>
+                    <div style={{ fontSize:'10px', color:'#fb923c', marginTop:'3px' }}>أعلى متحقق</div>
+                  </div>
+                </div>
                 {attackSummary.peakActive > 0 && (
                   <div style={{ marginTop:'8px', fontSize:'12px', color:'#06b6d4' }}>👥 أعلى عدد نشط: {attackSummary.peakActive}</div>
                 )}
@@ -659,6 +759,10 @@ export default function Home() {
               const overallRate = maxElapsedReport > 0 ? Math.round((totalVisitsReport / maxElapsedReport) * 60) : 0;
               const successRate = totalTargetReport > 0 ? ((totalVisitsReport / totalTargetReport) * 100).toFixed(1) : 0;
               const peakActiveReport = Math.max(...finishedServers.map(s => s.peak_active || 0), 0);
+              const totalVerifiedReport = finishedServers.reduce((sum, s) => sum + (s.verified_visitors || 0), 0);
+              const totalBlockedReport = finishedServers.reduce((sum, s) => sum + (s.blocked_visitors || 0), 0);
+              const peakVerifiedReport = Math.max(...finishedServers.map(s => s.peak_verified || 0), 0);
+              const verifiedRate = totalVisitsReport > 0 ? ((totalVerifiedReport / totalVisitsReport) * 100).toFixed(1) : 0;
               return (
                 <div style={{ marginTop:'14px', padding:'16px', backgroundColor:'#0c1222', border:'2px solid #3b82f6', borderRadius:'12px' }}>
                   <div style={{ fontSize:'16px', color:'#3b82f6', marginBottom:'14px', fontWeight:'bold', textAlign:'center' }}>📊 التقرير المفصل</div>
@@ -694,13 +798,29 @@ export default function Home() {
                     ))}
                   </div>
 
+                  {/* Verified vs Blocked Report */}
+                  <div style={{ display:'grid', gridTemplateColumns:'repeat(4, 1fr)', gap:'8px', marginBottom:'14px' }}>
+                    {[
+                      { v: totalVerifiedReport.toLocaleString(), l:'زيارات متحققة', c:'#22c55e', icon:'✅' },
+                      { v: totalBlockedReport.toLocaleString(), l:'محظورة', c:'#ef4444', icon:'🚫' },
+                      { v: `${verifiedRate}%`, l:'نسبة التحقق', c: parseFloat(verifiedRate) > 70 ? '#22c55e' : parseFloat(verifiedRate) > 40 ? '#facc15' : '#ef4444', icon:'📊' },
+                      { v: peakVerifiedReport.toLocaleString(), l:'أعلى متحقق', c:'#a78bfa', icon:'🚀' },
+                    ].map((x, i) => (
+                      <div key={i} style={{ textAlign:'center', padding:'10px', backgroundColor:'#111827', borderRadius:'8px', border:'1px solid #1f2937' }}>
+                        <div style={{ fontSize:'10px', marginBottom:'4px' }}>{x.icon}</div>
+                        <div style={{ fontSize:'18px', fontWeight:'bold', color:x.c }}>{x.v}</div>
+                        <div style={{ fontSize:'9px', color:'#9ca3af', marginTop:'3px' }}>{x.l}</div>
+                      </div>
+                    ))}
+                  </div>
+
                   {/* Per-Server Table */}
                   <div style={{ fontSize:'13px', color:'#3b82f6', marginBottom:'8px', fontWeight:'bold' }}>📋 تفاصيل كل سيرفر</div>
                   <div style={{ overflowX:'auto' }}>
                     <table style={{ width:'100%', borderCollapse:'collapse', fontSize:'11px' }}>
                       <thead>
                         <tr style={{ backgroundColor:'#1e293b' }}>
-                          {['السيرفر','الوضع','الزيارات','الأخطاء','النجاح','IPs','السرعة','الوقت','أعلى نشط'].map((h, i) => (
+                          {['السيرفر','الوضع','الزيارات','متحقق','محظور','الأخطاء','IPs','السرعة','الوقت'].map((h, i) => (
                             <th key={i} style={{ padding:'8px 4px', color:'#9ca3af', borderBottom:'1px solid #374151', textAlign:'center', whiteSpace:'nowrap' }}>{h}</th>
                           ))}
                         </tr>
@@ -713,12 +833,12 @@ export default function Home() {
                               <td style={{ padding:'6px 4px', color:'#9ca3af', textAlign:'center', borderBottom:'1px solid #1f2937' }}>{sv.host?.split('.').slice(-2).join('.')}</td>
                               <td style={{ padding:'6px 4px', textAlign:'center', borderBottom:'1px solid #1f2937' }}><span style={{ color:'#22c55e', fontSize:'10px' }}>{sv.mode || '-'}</span></td>
                               <td style={{ padding:'6px 4px', color:'#22c55e', textAlign:'center', fontWeight:'bold', borderBottom:'1px solid #1f2937' }}>{(sv.visits||0).toLocaleString()}</td>
+                              <td style={{ padding:'6px 4px', color:'#4ade80', textAlign:'center', borderBottom:'1px solid #1f2937' }}>{sv.verified_visitors||0}</td>
+                              <td style={{ padding:'6px 4px', color: (sv.blocked_visitors||0) > 0 ? '#ef4444' : '#22c55e', textAlign:'center', borderBottom:'1px solid #1f2937' }}>{sv.blocked_visitors||0}</td>
                               <td style={{ padding:'6px 4px', color: (sv.errors||0) > 0 ? '#ef4444' : '#22c55e', textAlign:'center', borderBottom:'1px solid #1f2937' }}>{sv.errors||0}</td>
-                              <td style={{ padding:'6px 4px', color: parseFloat(svSuccess) > 90 ? '#22c55e' : '#facc15', textAlign:'center', borderBottom:'1px solid #1f2937' }}>{svSuccess}%</td>
                               <td style={{ padding:'6px 4px', color:'#a855f7', textAlign:'center', borderBottom:'1px solid #1f2937' }}>{sv.unique_ips||0}</td>
                               <td style={{ padding:'6px 4px', color:'#06b6d4', textAlign:'center', borderBottom:'1px solid #1f2937' }}>{sv.rate||0}/م</td>
                               <td style={{ padding:'6px 4px', color:'#facc15', textAlign:'center', borderBottom:'1px solid #1f2937' }}>{formatTime(sv.elapsed||0)}</td>
-                              <td style={{ padding:'6px 4px', color:'#f97316', textAlign:'center', borderBottom:'1px solid #1f2937' }}>{sv.peak_active||0}</td>
                             </tr>
                           );
                         })}

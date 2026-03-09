@@ -258,6 +258,7 @@ stats = {
     "active_visitors":0,"waves_done":0,"total_waves":0,
     "duration_min":0,"mode":"detecting","unique_ips":0,"peak_active":0,
     "error_reasons":{},
+    "verified_visitors":0,"blocked_visitors":0,"peak_verified":0,
 }
 lock = threading.Lock()
 stop_event = threading.Event()
@@ -374,6 +375,9 @@ def write_status():
                 "total_waves":stats["total_waves"],
                 "duration_min":stats["duration_min"],
                 "unique_ips":stats["unique_ips"],
+                "verified_visitors":stats["verified_visitors"],
+                "blocked_visitors":stats["blocked_visitors"],
+                "peak_verified":stats["peak_verified"],
             },f)
     except: pass
 
@@ -388,10 +392,12 @@ def log_progress(fail_reason=""):
             write_status()
             err_str = " | ".join(f"{k}:{v}" for k,v in sorted(stats["error_reasons"].items(), key=lambda x:-x[1])[:5])
             print(f"  [W{stats['waves_done']}/{stats['total_waves']}] "
-                  f"✅{stats['success']} ❌{stats['failed']} | "
-                  f"{r:.0f}/min | 👥{stats['active_visitors']} active "
+                  f"\u2705{stats['success']} \u274c{stats['failed']} | "
+                  f"{r:.0f}/min | \U0001f465{stats['active_visitors']} active "
+                  f"(\u2714\ufe0f{stats['verified_visitors']} verified) "
                   f"(peak:{stats['peak_active']}) | "
-                  f"🌍{stats['unique_ips']} IPs | mode:{stats['mode']}"
+                  f"\U0001f6ab{stats['blocked_visitors']} blocked | "
+                  f"\U0001f30d{stats['unique_ips']} IPs | mode:{stats['mode']}"
                   f"{' | ERR: ' + err_str if err_str else ''}", flush=True)
 
 
@@ -560,40 +566,114 @@ def detect_captcha(html):
     return result
 
 
-# ============ CLOUDFLARE BLOCK DETECTION ============
+# ============ ADVANCED BLOCK/SUCCESS DETECTION ============
+# Block indicators - if ANY of these are in the response, it's NOT real content
+BLOCK_INDICATORS = [
+    "just a moment", "checking your browser", "cf-browser-verification",
+    "cf-challenge-running", "enable javascript and cookies to continue",
+    "please wait while we verify", "one more step",
+    "please complete the security check", "attention required",
+    "access denied", "you have been blocked", "error 1020",
+    "sorry, you have been blocked", "performance & security by cloudflare",
+    "ddos protection by", "please turn javascript on",
+    "pardon our interruption", "press & hold", "verifying you are human",
+    "geo.captcha-delivery.com", "request blocked",
+    "the requested url was rejected", "reference #18",
+    "cf-chl-widget", "cf-spinner-please-wait",
+]
+
 def is_cf_blocked(response):
-    """Check if Cloudflare actually BLOCKED the request (challenge page).
-    Many Cloudflare sites include 'challenge-platform' script in normal pages.
-    This function distinguishes real blocks from normal pages with CF scripts."""
+    """Legacy wrapper - checks if response is a challenge/block page.
+    Now uses the advanced verification system."""
     try:
-        text = response.text.lower()
-        status = response.status_code
-        
-        # Definite block: 403/503 status
-        if status in [403, 503]:
-            return True
-        
-        # Definite block: Cloudflare challenge/interstitial page
-        if 'just a moment' in text or 'checking your browser' in text:
-            return True
-        if 'cf-chl-widget' in text or 'cf-challenge-running' in text:
-            return True
-        
-        # If status is 200 and page has real content, it's NOT blocked
-        # even if challenge-platform script is injected (normal for CF sites)
-        if status == 200:
-            has_title = '<title>' in text and '</title>' in text
-            has_body_content = len(text) > 1500
-            if has_title and has_body_content:
-                return False  # Real page with CF script - NOT blocked
-        
-        # Fallback: if challenge-platform is present and no real content, it's blocked
-        if 'challenge-platform' in text and len(text) < 5000:
-            return True
-        
-        return False
+        success, reason = verify_visit_response(response)
+        return not success
     except:
         return False
+
+def verify_visit_response(response):
+    """
+    ADVANCED VERIFICATION: Check if a visitor's request actually reached real content.
+    Returns: (bool success, str reason)
+    
+    This is the KEY improvement - instead of just checking status code,
+    we verify the actual content to know if the visit was real.
+    """
+    try:
+        text = response.text
+        text_lower = text.lower()
+        status = response.status_code
+        
+        # === DEFINITE BLOCKS ===
+        # Status code blocks
+        if status in [403, 503, 429]:
+            return False, f"status_{status}"
+        
+        # Content-based blocks (check ALL block indicators)
+        for indicator in BLOCK_INDICATORS:
+            if indicator in text_lower:
+                return False, f"blocked:{indicator[:30]}"
+        
+        # Small page with challenge-platform = blocked
+        if 'challenge-platform' in text_lower and len(text) < 5000:
+            return False, "cf_challenge_page"
+        
+        # === SUCCESS VERIFICATION ===
+        success_signals = 0
+        
+        # 1. Real title check (not a challenge title)
+        if '<title>' in text_lower and '</title>' in text_lower:
+            title_match = re.search(r'<title>([^<]+)</title>', text, re.IGNORECASE)
+            if title_match:
+                title = title_match.group(1).strip().lower()
+                challenge_titles = ["just a moment", "attention required", "access denied",
+                                    "cloudflare", "please wait", "ddos", "security check",
+                                    "blocked", "error", "403", "503", "captcha"]
+                if not any(ct in title for ct in challenge_titles):
+                    success_signals += 2  # Real title = strong signal
+                else:
+                    return False, f"challenge_title:{title[:30]}"
+        
+        # 2. HTML structure signals
+        if '<nav' in text_lower or '<header' in text_lower:
+            success_signals += 1
+        if '<footer' in text_lower:
+            success_signals += 1
+        if '<main' in text_lower or '<article' in text_lower:
+            success_signals += 1
+        
+        # 3. Content size (challenge pages are usually small)
+        if len(text) > 10000:
+            success_signals += 1
+        elif len(text) > 5000:
+            success_signals += 0.5
+        
+        # 4. Multiple links/images = real page
+        link_count = text_lower.count('<a ')
+        if link_count > 5:
+            success_signals += 1
+        img_count = text_lower.count('<img')
+        if img_count > 2:
+            success_signals += 0.5
+        
+        # 5. SPA shell (React/Next.js/Vue) - counts as success
+        if '<div id="root"' in text_lower or '<div id="__next"' in text_lower or '<div id="app"' in text_lower:
+            success_signals += 1
+        
+        # === VERDICT ===
+        if status == 200 and success_signals >= 3:
+            return True, "verified_real_content"
+        elif status == 200 and success_signals >= 1 and len(text) > 2000:
+            return True, "likely_real_content"
+        elif status in [200, 301, 302] and len(text) > 1500 and success_signals >= 1:
+            return True, "probable_content"
+        elif status == 200 and len(text) < 1000:
+            return False, "suspicious_small_page"
+        else:
+            return False, f"uncertain_s{success_signals}_sz{len(text)}"
+    
+    except Exception as e:
+        return False, f"error:{type(e).__name__}"
 
 
 # ============ CLOUDFLARE COOKIE SOLVER ============
@@ -1505,43 +1585,55 @@ def visitor_protected_shared(site_info, vid, cookies, ua):
     try:
         r = smart_request(url, profile, proxy=proxy, cookies=cookies, timeout=15)
         
-        # Check if blocked
-        if r.status_code == 403 or is_cf_blocked(r):
-            with cf_cookie_cache["lock"]:
-                cf_cookie_cache["fail_count"] += 1
-                if cf_cookie_cache["fail_count"] >= 3:
-                    print(f"  ⚠️ Shared cookies failing, switching to per-proxy", flush=True)
-                    cf_cookie_cache["mode"] = "per_proxy"
-            return visitor_protected_per_proxy(site_info, vid)
+        # ADVANCED VERIFICATION: Check if we actually reached real content
+        success, reason = verify_visit_response(r)
         
-        if r.status_code in [200, 301, 302]:
-            with lock:
-                stats["success"] += 1
-                stats["active_visitors"] += 1
-                stats["unique_ips"] += 1
-                if stats["active_visitors"] > stats["peak_active"]:
-                    stats["peak_active"] = stats["active_visitors"]
-            log_progress()
-            
-            # Simulate browsing with TLS spoofing
-            stay = STAY_TIME + random.randint(-5, 5)
-            end_time = time.time() + max(stay, 15)
-            
-            while time.time() < end_time and not stop_event.is_set():
-                time.sleep(random.uniform(3, 8))
-                if time.time() >= end_time or stop_event.is_set(): break
-                page = random.choice(site_info["pages"]) if site_info["pages"] else "/"
-                try:
-                    smart_request(site_info["base_url"] + page, profile, proxy=proxy, 
-                                cookies=cookies, timeout=10)
-                except: pass
-            
-            with lock: stats["active_visitors"] -= 1
-            return True
-        else:
-            with lock: stats["failed"] += 1
-            log_progress()
-            return False
+        if not success:
+            # Check if it's a cookie failure (need to switch to per-proxy)
+            if reason.startswith("blocked:") or reason.startswith("status_") or reason == "cf_challenge_page":
+                with cf_cookie_cache["lock"]:
+                    cf_cookie_cache["fail_count"] += 1
+                    if cf_cookie_cache["fail_count"] >= 3:
+                        print(f"  ⚠️ Shared cookies failing ({reason}), switching to per-proxy", flush=True)
+                        cf_cookie_cache["mode"] = "per_proxy"
+                with lock: stats["blocked_visitors"] += 1
+                return visitor_protected_per_proxy(site_info, vid)
+            else:
+                with lock:
+                    stats["failed"] += 1
+                    stats["blocked_visitors"] += 1
+                log_progress(f"verify_fail:{reason[:25]}")
+                return False
+        
+        # VERIFIED SUCCESS - visitor actually reached real content
+        with lock:
+            stats["success"] += 1
+            stats["active_visitors"] += 1
+            stats["verified_visitors"] += 1
+            stats["unique_ips"] += 1
+            if stats["active_visitors"] > stats["peak_active"]:
+                stats["peak_active"] = stats["active_visitors"]
+            if stats["verified_visitors"] > stats["peak_verified"]:
+                stats["peak_verified"] = stats["verified_visitors"]
+        log_progress()
+        
+        # Simulate browsing with TLS spoofing
+        stay = STAY_TIME + random.randint(-5, 5)
+        end_time = time.time() + max(stay, 15)
+        
+        while time.time() < end_time and not stop_event.is_set():
+            time.sleep(random.uniform(3, 8))
+            if time.time() >= end_time or stop_event.is_set(): break
+            page = random.choice(site_info["pages"]) if site_info["pages"] else "/"
+            try:
+                smart_request(site_info["base_url"] + page, profile, proxy=proxy, 
+                            cookies=cookies, timeout=10)
+            except: pass
+        
+        with lock:
+            stats["active_visitors"] -= 1
+            stats["verified_visitors"] -= 1
+        return True
             
     except Exception as e:
         with lock: stats["failed"] += 1
@@ -1560,14 +1652,19 @@ def visitor_protected_per_proxy(site_info, vid):
         try:
             r = smart_request(url, profile, proxy=proxy, timeout=20)
             
-            if r.status_code == 200 and not is_cf_blocked(r):
+            # ADVANCED VERIFICATION
+            success, reason = verify_visit_response(r)
+            if success:
                 cookies = dict(r.cookies)
                 with lock:
                     stats["success"] += 1
                     stats["active_visitors"] += 1
+                    stats["verified_visitors"] += 1
                     stats["unique_ips"] += 1
                     if stats["active_visitors"] > stats["peak_active"]:
                         stats["peak_active"] = stats["active_visitors"]
+                    if stats["verified_visitors"] > stats["peak_verified"]:
+                        stats["peak_verified"] = stats["verified_visitors"]
                 log_progress()
                 
                 stay = STAY_TIME + random.randint(-5, 5)
@@ -1582,8 +1679,12 @@ def visitor_protected_per_proxy(site_info, vid):
                                     cookies=cookies, timeout=10)
                     except: pass
                 
-                with lock: stats["active_visitors"] -= 1
+                with lock:
+                    stats["active_visitors"] -= 1
+                    stats["verified_visitors"] -= 1
                 return True
+            else:
+                with lock: stats["blocked_visitors"] += 1
         except:
             pass
     
@@ -1599,31 +1700,49 @@ def visitor_protected_per_proxy(site_info, vid):
         
         if data.get("status") == "ok":
             solution = data.get("solution", {})
+            sol_html = solution.get("response", "")
             cookies = {c["name"]: c["value"] for c in solution.get("cookies", [])}
             ua = solution.get("userAgent", profile["ua"])
             
-            with lock:
-                stats["success"] += 1
-                stats["active_visitors"] += 1
-                stats["unique_ips"] += 1
-                if stats["active_visitors"] > stats["peak_active"]:
-                    stats["peak_active"] = stats["active_visitors"]
-            log_progress()
+            # Verify FlareSolverr actually got real content
+            flare_blocked = False
+            if sol_html:
+                sol_lower = sol_html.lower()
+                for indicator in BLOCK_INDICATORS:
+                    if indicator in sol_lower:
+                        flare_blocked = True
+                        break
             
-            stay = STAY_TIME + random.randint(-5, 5)
-            end_time = time.time() + max(stay, 15)
-            
-            while time.time() < end_time and not stop_event.is_set():
-                time.sleep(random.uniform(5, 10))
-                if time.time() >= end_time or stop_event.is_set(): break
-                page = random.choice(site_info["pages"]) if site_info["pages"] else "/"
-                try:
-                    smart_request(site_info["base_url"] + page, profile, proxy=proxy,
-                                cookies=cookies, timeout=10)
-                except: pass
-            
-            with lock: stats["active_visitors"] -= 1
-            return True
+            if not flare_blocked:
+                with lock:
+                    stats["success"] += 1
+                    stats["active_visitors"] += 1
+                    stats["verified_visitors"] += 1
+                    stats["unique_ips"] += 1
+                    if stats["active_visitors"] > stats["peak_active"]:
+                        stats["peak_active"] = stats["active_visitors"]
+                    if stats["verified_visitors"] > stats["peak_verified"]:
+                        stats["peak_verified"] = stats["verified_visitors"]
+                log_progress()
+                
+                stay = STAY_TIME + random.randint(-5, 5)
+                end_time = time.time() + max(stay, 15)
+                
+                while time.time() < end_time and not stop_event.is_set():
+                    time.sleep(random.uniform(5, 10))
+                    if time.time() >= end_time or stop_event.is_set(): break
+                    page = random.choice(site_info["pages"]) if site_info["pages"] else "/"
+                    try:
+                        smart_request(site_info["base_url"] + page, profile, proxy=proxy,
+                                    cookies=cookies, timeout=10)
+                    except: pass
+                
+                with lock:
+                    stats["active_visitors"] -= 1
+                    stats["verified_visitors"] -= 1
+                return True
+            else:
+                with lock: stats["blocked_visitors"] += 1
     except:
         pass
     
@@ -1642,13 +1761,18 @@ def visitor_http(site_info, vid):
     try:
         r = smart_request(url, profile, proxy=proxy, timeout=15)
         
-        if r.status_code in [200, 301, 302]:
+        # ADVANCED VERIFICATION even for HTTP mode
+        success, reason = verify_visit_response(r)
+        if success:
             with lock:
                 stats["success"] += 1
                 stats["active_visitors"] += 1
+                stats["verified_visitors"] += 1
                 stats["unique_ips"] += 1
                 if stats["active_visitors"] > stats["peak_active"]:
                     stats["peak_active"] = stats["active_visitors"]
+                if stats["verified_visitors"] > stats["peak_verified"]:
+                    stats["peak_verified"] = stats["verified_visitors"]
             log_progress()
             
             stay = STAY_TIME + random.randint(-5, 5)
@@ -1662,11 +1786,15 @@ def visitor_http(site_info, vid):
                     smart_request(site_info["base_url"] + page, profile, proxy=proxy, timeout=10)
                 except: pass
             
-            with lock: stats["active_visitors"] -= 1
+            with lock:
+                stats["active_visitors"] -= 1
+                stats["verified_visitors"] -= 1
             return True
         else:
-            with lock: stats["failed"] += 1
-            log_progress()
+            with lock:
+                stats["failed"] += 1
+                stats["blocked_visitors"] += 1
+            log_progress(f"http_verify_fail:{reason[:25]}")
             return False
             
     except Exception as e:
@@ -1821,6 +1949,9 @@ def run(url, duration_min, manual_socket=None):
     stats["peak_active"] = 0
     stats["waves_done"] = 0
     stats["unique_ips"] = 0
+    stats["verified_visitors"] = 0
+    stats["blocked_visitors"] = 0
+    stats["peak_verified"] = 0
     write_status()
     
     all_threads = []
