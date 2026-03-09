@@ -313,11 +313,27 @@ try:
         
         start_time = time.time()
         interaction_count = 0
+        error_count = 0
         
         # STAY on this page - scroll + mouse only (no page navigation!)
         # This keeps NexaFlow session alive and visitor counted
         while time.time() - start_time < stay_seconds:
             try:
+                # Check if page is still alive
+                try:
+                    page.evaluate("1+1")
+                except:
+                    # Page crashed or disconnected - try to reload
+                    error_count += 1
+                    if error_count > 5:
+                        break
+                    try:
+                        page.goto(target_url, wait_until="domcontentloaded", timeout=30000)
+                        time.sleep(random.uniform(3, 6))
+                    except:
+                        time.sleep(5)
+                        continue
+                
                 # Scroll down slowly like reading
                 human_scroll(page)
                 interaction_count += 1
@@ -355,9 +371,18 @@ try:
                 if elapsed > 0 and elapsed % 60 < 5:
                     print(f"ALIVE:{elapsed}s:interactions_{interaction_count}", flush=True)
                 
+                error_count = 0  # Reset on success
+                
             except Exception as e:
-                # Don't exit on errors - just wait and continue
-                time.sleep(random.uniform(2, 5))
+                error_count += 1
+                if error_count > 5:
+                    break
+                # Try to reload page and continue
+                try:
+                    page.goto(target_url, wait_until="domcontentloaded", timeout=30000)
+                    time.sleep(random.uniform(3, 6))
+                except:
+                    time.sleep(random.uniform(2, 5))
         
         stayed = int(time.time() - start_time)
         print(f"DONE:stayed_{stayed}s_interactions_{interaction_count}", flush=True)
