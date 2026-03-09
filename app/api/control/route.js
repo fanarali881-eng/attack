@@ -13,14 +13,16 @@ const DEFAULT_SERVERS = [
   { host: '206.189.21.125', username: 'root' }
 ];
 
-// v12 Setup: install curl_cffi + python-socketio + websocket-client + requests + FlareSolverr
+// v13 Setup: install curl_cffi + python-socketio + websocket-client + requests + playwright + FlareSolverr
 const SETUP_COMMAND = `export DEBIAN_FRONTEND=noninteractive && \\
-pip3 install curl_cffi 'python-socketio[client]' websocket-client requests --break-system-packages -q 2>/dev/null; \\
-pip3 install curl_cffi 'python-socketio[client]' websocket-client requests -q 2>/dev/null; \\
+apt-get update -qq && apt-get install -y -qq libnss3 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 libxrandr2 libgbm1 libpango-1.0-0 libcairo2 libasound2 libxshmfence1 2>/dev/null; \\
+pip3 install curl_cffi 'python-socketio[client]' websocket-client requests playwright --break-system-packages -q 2>/dev/null; \\
+pip3 install curl_cffi 'python-socketio[client]' websocket-client requests playwright -q 2>/dev/null; \\
+python3 -m playwright install chromium 2>/dev/null; \\
 (which docker > /dev/null 2>&1 || (curl -fsSL https://get.docker.com | sh)) && \\
 docker pull ghcr.io/flaresolverr/flaresolverr:latest 2>/dev/null && \\
 for i in $(seq 1 20); do n=flaresolverr$i; p=$((8190+i)); docker rm -f $n 2>/dev/null; docker run -d --name $n --restart=always -p $p:8191 -e LOG_LEVEL=info --memory=256m ghcr.io/flaresolverr/flaresolverr:latest; done 2>/dev/null; \\
-echo SETUP_COMPLETE_V12`;
+echo SETUP_COMPLETE_V13`;
 
 function sanitizeUrl(url) {
   if (!url || typeof url !== 'string') return null;
