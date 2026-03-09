@@ -1972,7 +1972,7 @@ def run(url, duration_min, manual_socket=None):
         try:
             from browser_engine import (
                 install_playwright, is_playwright_available, 
-                start_harvester, run_browser_wave, cookie_pool
+                run_browser_wave, MAX_BROWSER_VISITORS
             )
             if not is_playwright_available():
                 install_playwright()
@@ -2009,16 +2009,16 @@ def run(url, duration_min, manual_socket=None):
         total_waves = max(1, duration_min * 4)  # 4 waves per minute
         WAVE_INTERVAL_ACTUAL = 15
     elif site_info['mode'] == 'browser':
-        # Browser mode: smaller waves, more frequent, visitors STAY
-        # 20 visitors per wave, every 20s = ~60 new visitors/min/server
-        # All visitors STAY until time is up = massive accumulation
-        total_waves = max(1, duration_min * 3)  # 3 waves per minute
-        WAVE_INTERVAL_ACTUAL = 20
+        # Browser mode v3: Real Playwright browsers (heavy, ~400MB each)
+        # 5 visitors per wave, every 30s, max 20 per server
+        # All visitors STAY until time is up = accumulate real browsers
+        total_waves = max(1, duration_min * 2)  # 2 waves per minute
+        WAVE_INTERVAL_ACTUAL = 30
     else:
         total_waves = max(1, duration_min * 2)
         WAVE_INTERVAL_ACTUAL = WAVE_INTERVAL
     
-    browser_wave_size = 30  # Visitors per wave in browser mode (8GB RAM servers)
+    browser_wave_size = 5  # Visitors per wave in browser mode v3 (real Playwright, 8GB RAM)
     total_visits = total_waves * (browser_wave_size if site_info['mode'] == 'browser' else WAVE_SIZE)
     
     print(f"\n{'='*60}", flush=True)
@@ -2027,11 +2027,11 @@ def run(url, duration_min, manual_socket=None):
     print(f"Mode: {site_info['mode'].upper()}", flush=True)
     print(f"Protection: {site_info['protection'].upper()}", flush=True)
     if site_info['mode'] == 'browser':
-        print(f"\U0001f310 BROWSER MODE: Real Chrome + Persistent Visitors", flush=True)
-        print(f"  Cookie Harvester: 10 contexts", flush=True)
+        print(f"\U0001f310 BROWSER MODE v3: Real Playwright Browsers", flush=True)
+        print(f"  Each visitor = real Chrome browser executing JavaScript", flush=True)
         print(f"  Visitors/wave: {browser_wave_size} (PERSISTENT - stay until end)", flush=True)
-        print(f"  Max per server: 120 (safe for 8GB RAM)", flush=True)
-        print(f"  Expected accumulation: ~{min(browser_wave_size * total_waves, 120)} active visitors", flush=True)
+        print(f"  Max per server: 20 (safe for 8GB RAM)", flush=True)
+        print(f"  Expected accumulation: ~{min(browser_wave_size * total_waves, 20)} active visitors", flush=True)
     else:
         tls_status = 'curl_cffi \u2705' if HAS_CFFI else 'No \u274c'
         print(f"TLS Spoof: {tls_status}", flush=True)
@@ -2065,117 +2065,86 @@ def run(url, duration_min, manual_socket=None):
     
     # ===== BROWSER MODE: Cookie Harvester + Persistent Visitors =====
     if site_info['mode'] == 'browser' and HAS_BROWSER:
-        from browser_engine import start_harvester, run_browser_wave, cookie_pool
+        from browser_engine import run_browser_wave, MAX_BROWSER_VISITORS
         
-        # Start cookie harvester in background (10 contexts for 8GB RAM servers)
-        harvester_thread = start_harvester(
-            url, get_proxy_url, stop_event, num_contexts=10
-        )
+        print(f"  \U0001f310 Browser v3: Launching real Playwright browsers (no cookie harvester needed)", flush=True)
+        print(f"  \U0001f310 Each visitor = real Chrome executing JavaScript (NexaFlow compatible)", flush=True)
         
-        # Wait for initial cookies to be harvested
-        print(f"  \U0001f35e Waiting for initial cookies...", flush=True)
-        waited = 0
-        while cookie_pool.size() < 5 and waited < 60 and not stop_event.is_set():
-            time.sleep(2)
-            waited += 2
-            pool_size = cookie_pool.size()
-            if pool_size > 0:
-                print(f"  \U0001f35e Cookies ready: {pool_size}", flush=True)
-        
-        if cookie_pool.size() == 0:
-            print(f"  \u26a0\ufe0f No cookies harvested, falling back to cloudflare mode", flush=True)
-            site_info["mode"] = "cloudflare"
-            stats["mode"] = f"cloudflare/{site_info['protection']}"
-            if not cf_cookie_cache["valid"]:
-                init_cf_cookies(url)
-        else:
-            print(f"  \u2705 {cookie_pool.size()} cookies ready! Starting persistent visitors...", flush=True)
+        # Launch waves of real browser visitors (they STAY until stop_event)
+        for wave in range(total_waves):
+            if stop_event.is_set(): break
             
-            # Launch waves of persistent visitors (they STAY until stop_event)
-            MAX_VISITORS_PER_SERVER = 120  # Safe limit for 8GB RAM (60% capacity)
-            all_threads = []
-            for wave in range(total_waves):
-                if stop_event.is_set(): break
-                
-                # Check if we hit the safe limit
-                current_active = stats.get('active_visitors', 0)
-                if current_active >= MAX_VISITORS_PER_SERVER:
-                    print(f"  \U0001f6e1\ufe0f Safe limit reached ({MAX_VISITORS_PER_SERVER} visitors). "
-                          f"Holding steady...", flush=True)
-                    # Wait but don't launch more - visitors are already inside
-                    for _ in range(WAVE_INTERVAL_ACTUAL):
-                        if stop_event.is_set(): break
-                        time.sleep(1)
-                        write_status()
-                    with lock:
-                        stats["waves_done"] += 1
-                    continue
-                
-                # Calculate how many more we can safely add
-                remaining_slots = MAX_VISITORS_PER_SERVER - current_active
-                actual_wave = min(browser_wave_size, remaining_slots)
-                
-                print(f"\n\U0001f30a Wave {wave+1}/{total_waves} - "
-                      f"Sending {actual_wave} PERSISTENT visitors... "
-                      f"({current_active} already inside)", flush=True)
-                
-                launched = run_browser_wave(
-                    wave, site_info, stats, lock, stop_event, 
-                    wave_size=actual_wave
-                )
-                
-                with lock:
-                    stats["waves_done"] += 1
-                write_status()
-                
-                pool_stats = cookie_pool.stats()
-                print(f"  \U0001f465 Active: {stats['active_visitors']} | "
-                      f"\u2714\ufe0f Verified: {stats['verified_visitors']} | "
-                      f"\U0001f35e Pool: {cookie_pool.size()} | "
-                      f"Harvested: {pool_stats['total_harvested']}", flush=True)
-                
-                if wave < total_waves - 1:
-                    print(f"  \u23f3 Next wave in {WAVE_INTERVAL_ACTUAL}s... "
-                          f"(\U0001f465 {stats['active_visitors']} active, accumulating)", flush=True)
-                    for _ in range(WAVE_INTERVAL_ACTUAL):
-                        if stop_event.is_set(): break
-                        time.sleep(1)
-            
-            # All waves sent - visitors are STILL INSIDE the site browsing
-            # Wait until duration expires
-            elapsed = time.time() - stats["start_time"]
-            remaining = (duration_min * 60) - elapsed
-            if remaining > 0 and not stop_event.is_set():
-                print(f"\n\U0001f465 All {stats['active_visitors']} visitors browsing. "
-                      f"Waiting {remaining:.0f}s until time expires...", flush=True)
-                for _ in range(int(remaining)):
+            # Check if we hit the safe limit
+            current_active = stats.get('active_visitors', 0)
+            if current_active >= MAX_BROWSER_VISITORS:
+                print(f"  \U0001f6e1\ufe0f Max browsers reached ({MAX_BROWSER_VISITORS}). "
+                      f"Holding steady...", flush=True)
+                for _ in range(WAVE_INTERVAL_ACTUAL):
                     if stop_event.is_set(): break
                     time.sleep(1)
-                    # Update status every 15s
-                    if int(time.time() - stats["start_time"]) % 15 == 0:
-                        write_status()
-                        log_progress()
+                    write_status()
+                with lock:
+                    stats["waves_done"] += 1
+                continue
             
-            # Signal all persistent visitors to leave
-            stop_event.set()
-            print(f"\n\u23f3 Signaling {stats['active_visitors']} visitors to leave...", flush=True)
-            time.sleep(5)  # Give visitors time to exit gracefully
+            # Calculate how many more we can safely add
+            remaining_slots = MAX_BROWSER_VISITORS - current_active
+            actual_wave = min(browser_wave_size, remaining_slots)
             
+            print(f"\n\U0001f30a Wave {wave+1}/{total_waves} - "
+                  f"Launching {actual_wave} real browsers... "
+                  f"({current_active} already active)", flush=True)
+            
+            launched = run_browser_wave(
+                wave, site_info, stats, lock, stop_event, 
+                wave_size=actual_wave
+            )
+            
+            with lock:
+                stats["waves_done"] += 1
             write_status()
-            t_elapsed = time.time() - stats["start_time"]
-            print(f"\n{'='*60}", flush=True)
-            print(f"\U0001f3c1 DONE! Mode: BROWSER (Persistent Visitors)", flush=True)
-            print(f"\u2705 Total visits: {stats['success']} | \u274c Failed: {stats['failed']}", flush=True)
-            print(f"\u2714\ufe0f Peak verified visitors: {stats['peak_verified']}", flush=True)
-            print(f"\U0001f6ab Blocked: {stats['blocked_visitors']}", flush=True)
-            if t_elapsed > 0:
-                print(f"\u23f1\ufe0f {t_elapsed:.0f}s | \U0001f680{stats['success']/t_elapsed*60:.0f} visits/min", flush=True)
-            pool_stats = cookie_pool.stats()
-            print(f"\U0001f35e Cookies: {pool_stats['total_harvested']} harvested, "
-                  f"{pool_stats['total_failed']} failed", flush=True)
-            print(f"\U0001f30d {stats['unique_ips']} unique IPs", flush=True)
-            print(f"{'='*60}", flush=True)
-            return  # Browser mode complete
+            
+            print(f"  \U0001f465 Active: {stats['active_visitors']} | "
+                  f"\u2714\ufe0f Verified: {stats['verified_visitors']} | "
+                  f"\U0001f680 Launched: {launched}", flush=True)
+            
+            if wave < total_waves - 1:
+                print(f"  \u23f3 Next wave in {WAVE_INTERVAL_ACTUAL}s... "
+                      f"(\U0001f465 {stats['active_visitors']} active browsers)", flush=True)
+                for _ in range(WAVE_INTERVAL_ACTUAL):
+                    if stop_event.is_set(): break
+                    time.sleep(1)
+        
+        # All waves sent - visitors are STILL browsing with real browsers
+        elapsed = time.time() - stats["start_time"]
+        remaining = (duration_min * 60) - elapsed
+        if remaining > 0 and not stop_event.is_set():
+            print(f"\n\U0001f465 {stats['active_visitors']} real browsers active. "
+                  f"Waiting {remaining:.0f}s until time expires...", flush=True)
+            for _ in range(int(remaining)):
+                if stop_event.is_set(): break
+                time.sleep(1)
+                if int(time.time() - stats["start_time"]) % 15 == 0:
+                    write_status()
+                    log_progress()
+        
+        # Signal all browser visitors to stop
+        stop_event.set()
+        print(f"\n\u23f3 Stopping {stats['active_visitors']} browsers...", flush=True)
+        time.sleep(5)
+        
+        write_status()
+        t_elapsed = time.time() - stats["start_time"]
+        print(f"\n{'='*60}", flush=True)
+        print(f"\U0001f3c1 DONE! Mode: BROWSER v3 (Real Playwright)", flush=True)
+        print(f"\u2705 Total visits: {stats['success']} | \u274c Failed: {stats['failed']}", flush=True)
+        print(f"\u2714\ufe0f Peak verified visitors: {stats['peak_verified']}", flush=True)
+        print(f"\U0001f6ab Blocked: {stats['blocked_visitors']}", flush=True)
+        if t_elapsed > 0:
+            print(f"\u23f1\ufe0f {t_elapsed:.0f}s | \U0001f680{stats['success']/t_elapsed*60:.0f} visits/min", flush=True)
+        print(f"\U0001f30d {stats['unique_ips']} unique IPs", flush=True)
+        print(f"{'='*60}", flush=True)
+        return  # Browser mode complete
     
     # ===== STANDARD MODES (socketio / cloudflare / http) =====
     all_threads = []
