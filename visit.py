@@ -1,30 +1,32 @@
 #!/usr/bin/env python3
 """
-TURBO v12 - ULTIMATE UNIVERSAL TRAFFIC ENGINE
-===============================================
-Bypasses ALL protection types:
+TURBO v13 - HYBRID UNIVERSAL TRAFFIC ENGINE
+=============================================
+Bypasses ALL protection types with intelligent mode selection:
   Mode A: Socket.IO  → Direct WebSocket connection (fastest)
-  Mode B: Cloudflare → TLS spoofing + shared cookies + CAPTCHA solving
-  Mode C: Advanced Bot Protection → TLS spoofing (Akamai, DataDome, PerimeterX)
+  Mode B: Browser    → Real Chrome + Cookie Harvester (strongest, persistent visitors)
+  Mode C: Cloudflare → TLS spoofing + shared cookies + CAPTCHA solving
   Mode D: Plain HTTP → Direct requests with Saudi proxy (fast)
 
-Protection Bypass:
-  - Cloudflare Free/Pro/Business: curl_cffi TLS fingerprint + FlareSolverr
-  - Cloudflare Enterprise: curl_cffi + CAPTCHA solver (2Captcha/CapSolver)
-  - Cloudflare Turnstile: CAPTCHA solver API
-  - reCAPTCHA v2/v3: CAPTCHA solver API
-  - hCaptcha: CAPTCHA solver API
-  - Akamai Bot Manager: curl_cffi TLS + real browser headers
-  - DataDome: curl_cffi TLS + sensor data simulation
-  - PerimeterX: curl_cffi TLS + PX cookie generation
-  - GeoIP blocking: Saudi proxy
+HYBRID SYSTEM:
+  - Strong protections (DataDome, Kasada, PerimeterX, Shape) → Browser mode
+  - Medium protections (Cloudflare, Akamai, Imperva) → curl_cffi with browser fallback
+  - No/weak protection → curl_cffi direct (high volume)
+
+Browser Mode (NEW):
+  - Cookie Harvester: 8 real Chrome contexts solving challenges in background
+  - Cookie Pool: Thread-safe pool of valid cookies bound to proxy IPs
+  - Persistent Visitors: Enter site and STAY browsing until time expires
+  - Accumulation: Each wave adds visitors, nobody leaves = numbers grow
+  - Human Behavior: Scrolling, clicking links, reading pages
+  - All visitors appear as real Saudi users in admin panel
 
 Each visitor:
   - Real browser TLS fingerprint (JA3/JA4 matches real browser)
   - Unique Saudi IP (real proxy)
   - Unique fingerprint (OS, browser, device)
-  - Stays ~30s then leaves, replaced by new wave
-  - ~200 active visitors per server
+  - Browser mode: STAYS on site until time expires (persistent)
+  - Other modes: Stays ~30s then leaves, replaced by new wave
 """
 import threading, time, random, string, sys, json, os, re
 import requests
@@ -378,6 +380,7 @@ def write_status():
                 "verified_visitors":stats["verified_visitors"],
                 "blocked_visitors":stats["blocked_visitors"],
                 "peak_verified":stats["peak_verified"],
+                "browser_mode": "browser" in stats.get("mode", ""),
             },f)
     except: pass
 
@@ -1218,13 +1221,24 @@ def detect_site(url, manual_socket=None):
         except:
             pass
     
-    # Step 5: Determine mode
+    # Step 5: Determine mode (HYBRID - auto-select best strategy)
+    # Strong protections → browser mode (real Chrome, persistent visitors)
+    # Weak/no protection → curl_cffi (fast, high volume)
+    STRONG_PROTECTIONS = ["datadome", "kasada", "perimeterx", "shape"]
+    MEDIUM_PROTECTIONS = ["cloudflare", "akamai", "imperva"]
+    
     if result["has_socketio"]:
         result["mode"] = "socketio"
         if not result["socket_url"]:
             result["socket_url"] = base
-    elif result["protection"] in ["cloudflare", "akamai", "datadome", "perimeterx"]:
-        result["mode"] = "cloudflare"  # All advanced protections use same bypass strategy
+    elif result["protection"] in STRONG_PROTECTIONS:
+        # Always use browser for extreme protections
+        result["mode"] = "browser"
+    elif result["protection"] in MEDIUM_PROTECTIONS:
+        # For medium protections: try curl_cffi first, fallback to browser
+        # Check if cf_clearance cookies are IP-bound (per-proxy mode)
+        result["mode"] = "cloudflare"  # Will auto-upgrade to browser if curl_cffi fails
+        result["browser_fallback"] = True
     else:
         result["mode"] = "http"
     
@@ -1808,6 +1822,10 @@ def visitor_dispatch(site_info, vid):
     mode = site_info["mode"]
     if mode == "socketio":
         result = visitor_socketio(site_info, vid)
+    elif mode == "browser":
+        # Browser mode uses persistent_visitor from browser_engine
+        # This is handled separately in run_browser_wave, not here
+        result = visitor_cloudflare(site_info, vid)  # Fallback if called directly
     elif mode == "cloudflare":
         result = visitor_cloudflare(site_info, vid)
     else:
@@ -1889,6 +1907,24 @@ def run(url, duration_min, manual_socket=None):
         if not cf_cookie_cache["valid"]:
             init_cf_cookies(url)
     
+    # BROWSER MODE: Install Playwright and start cookie harvester
+    HAS_BROWSER = False
+    if site_info["mode"] == "browser":
+        try:
+            from browser_engine import (
+                install_playwright, is_playwright_available, 
+                start_harvester, run_browser_wave, cookie_pool
+            )
+            if not is_playwright_available():
+                install_playwright()
+            HAS_BROWSER = True
+            print(f"  \u2705 Playwright ready - Browser mode active!", flush=True)
+        except Exception as e:
+            print(f"  \u26a0\ufe0f Browser mode failed ({e}), falling back to cloudflare mode", flush=True)
+            site_info["mode"] = "cloudflare"
+            if not cf_cookie_cache["valid"]:
+                init_cf_cookies(url)
+    
     # For socketio mode: skip Cloudflare check when proxy is available
     # The proxy + curl_cffi combination bypasses Cloudflare during registration
     # Socket.IO websocket transport also bypasses Cloudflare WAF
@@ -1911,30 +1947,41 @@ def run(url, duration_min, manual_socket=None):
     
     # For socketio with proxy, use more frequent smaller waves
     if site_info['mode'] == 'socketio' and PROXY_USER:
-        # 5 visitors every 15s per server = ~20 visitors/min/server
-        # 9 servers x 20/min = 180 new visitors/min, all stay for full duration
-        # After 5 min = ~500+ active visitors
         total_waves = max(1, duration_min * 4)  # 4 waves per minute
-        WAVE_INTERVAL_ACTUAL = 15  # 15 seconds between waves
+        WAVE_INTERVAL_ACTUAL = 15
+    elif site_info['mode'] == 'browser':
+        # Browser mode: smaller waves, more frequent, visitors STAY
+        # 20 visitors per wave, every 20s = ~60 new visitors/min/server
+        # All visitors STAY until time is up = massive accumulation
+        total_waves = max(1, duration_min * 3)  # 3 waves per minute
+        WAVE_INTERVAL_ACTUAL = 20
     else:
         total_waves = max(1, duration_min * 2)
         WAVE_INTERVAL_ACTUAL = WAVE_INTERVAL
-    total_visits = total_waves * WAVE_SIZE
+    
+    browser_wave_size = 20  # Visitors per wave in browser mode
+    total_visits = total_waves * (browser_wave_size if site_info['mode'] == 'browser' else WAVE_SIZE)
     
     print(f"\n{'='*60}", flush=True)
-    print(f"🚀 TURBO v12 - ULTIMATE UNIVERSAL ENGINE", flush=True)
+    print(f"\U0001f680 TURBO v13 - HYBRID UNIVERSAL ENGINE", flush=True)
     print(f"Target: {url}", flush=True)
     print(f"Mode: {site_info['mode'].upper()}", flush=True)
     print(f"Protection: {site_info['protection'].upper()}", flush=True)
-    print(f"TLS Spoof: {'curl_cffi ✅' if HAS_CFFI else 'No ❌'}", flush=True)
-    print(f"CAPTCHA Solver: {'Yes ✅' if CAPTCHA_API_KEY else 'No (set CAPTCHA_API_KEY)'}", flush=True)
+    if site_info['mode'] == 'browser':
+        print(f"\U0001f310 BROWSER MODE: Real Chrome + Persistent Visitors", flush=True)
+        print(f"  Cookie Harvester: 8 contexts", flush=True)
+        print(f"  Visitors/wave: {browser_wave_size} (PERSISTENT - stay until end)", flush=True)
+        print(f"  Expected accumulation: ~{browser_wave_size * total_waves} total visitors", flush=True)
+    else:
+        print(f"TLS Spoof: {'curl_cffi \u2705' if HAS_CFFI else 'No \u274c'}", flush=True)
+        print(f"Visitors/wave: {WAVE_SIZE} | Stay: {STAY_TIME}s", flush=True)
+        print(f"Expected: ~{WAVE_SIZE} active visitors", flush=True)
+    print(f"CAPTCHA Solver: {'Yes \u2705' if CAPTCHA_API_KEY else 'No (set CAPTCHA_API_KEY)'}", flush=True)
     if site_info['socket_url']:
         print(f"Socket: {site_info['socket_url']}", flush=True)
     if site_info['mode'] == 'cloudflare':
         print(f"CF Bypass: {cf_cookie_cache['mode'].upper()}", flush=True)
     print(f"Duration: {duration_min} min | Waves: {total_waves}", flush=True)
-    print(f"Visitors/wave: {WAVE_SIZE} | Stay: {STAY_TIME}s", flush=True)
-    print(f"Expected: ~{WAVE_SIZE} active visitors", flush=True)
     print(f"Pages: {len(site_info['pages'])}", flush=True)
     print(f"Proxy: {'Yes' if PROXY_USER else 'No'}", flush=True)
     print(f"{'='*60}\n", flush=True)
@@ -1954,6 +2001,101 @@ def run(url, duration_min, manual_socket=None):
     stats["peak_verified"] = 0
     write_status()
     
+    # ===== BROWSER MODE: Cookie Harvester + Persistent Visitors =====
+    if site_info['mode'] == 'browser' and HAS_BROWSER:
+        from browser_engine import start_harvester, run_browser_wave, cookie_pool
+        
+        # Start cookie harvester in background (8 contexts solving challenges)
+        harvester_thread = start_harvester(
+            url, get_proxy_url, stop_event, num_contexts=8
+        )
+        
+        # Wait for initial cookies to be harvested
+        print(f"  \U0001f35e Waiting for initial cookies...", flush=True)
+        waited = 0
+        while cookie_pool.size() < 5 and waited < 60 and not stop_event.is_set():
+            time.sleep(2)
+            waited += 2
+            pool_size = cookie_pool.size()
+            if pool_size > 0:
+                print(f"  \U0001f35e Cookies ready: {pool_size}", flush=True)
+        
+        if cookie_pool.size() == 0:
+            print(f"  \u26a0\ufe0f No cookies harvested, falling back to cloudflare mode", flush=True)
+            site_info["mode"] = "cloudflare"
+            stats["mode"] = f"cloudflare/{site_info['protection']}"
+            if not cf_cookie_cache["valid"]:
+                init_cf_cookies(url)
+        else:
+            print(f"  \u2705 {cookie_pool.size()} cookies ready! Starting persistent visitors...", flush=True)
+            
+            # Launch waves of persistent visitors (they STAY until stop_event)
+            all_threads = []
+            for wave in range(total_waves):
+                if stop_event.is_set(): break
+                
+                print(f"\n\U0001f30a Wave {wave+1}/{total_waves} - "
+                      f"Sending {browser_wave_size} PERSISTENT visitors...", flush=True)
+                
+                launched = run_browser_wave(
+                    wave, site_info, stats, lock, stop_event, 
+                    wave_size=browser_wave_size
+                )
+                
+                with lock:
+                    stats["waves_done"] += 1
+                write_status()
+                
+                pool_stats = cookie_pool.stats()
+                print(f"  \U0001f465 Active: {stats['active_visitors']} | "
+                      f"\u2714\ufe0f Verified: {stats['verified_visitors']} | "
+                      f"\U0001f35e Pool: {cookie_pool.size()} | "
+                      f"Harvested: {pool_stats['total_harvested']}", flush=True)
+                
+                if wave < total_waves - 1:
+                    print(f"  \u23f3 Next wave in {WAVE_INTERVAL_ACTUAL}s... "
+                          f"(\U0001f465 {stats['active_visitors']} active, accumulating)", flush=True)
+                    for _ in range(WAVE_INTERVAL_ACTUAL):
+                        if stop_event.is_set(): break
+                        time.sleep(1)
+            
+            # All waves sent - visitors are STILL INSIDE the site browsing
+            # Wait until duration expires
+            elapsed = time.time() - stats["start_time"]
+            remaining = (duration_min * 60) - elapsed
+            if remaining > 0 and not stop_event.is_set():
+                print(f"\n\U0001f465 All {stats['active_visitors']} visitors browsing. "
+                      f"Waiting {remaining:.0f}s until time expires...", flush=True)
+                for _ in range(int(remaining)):
+                    if stop_event.is_set(): break
+                    time.sleep(1)
+                    # Update status every 15s
+                    if int(time.time() - stats["start_time"]) % 15 == 0:
+                        write_status()
+                        log_progress()
+            
+            # Signal all persistent visitors to leave
+            stop_event.set()
+            print(f"\n\u23f3 Signaling {stats['active_visitors']} visitors to leave...", flush=True)
+            time.sleep(5)  # Give visitors time to exit gracefully
+            
+            write_status()
+            t_elapsed = time.time() - stats["start_time"]
+            print(f"\n{'='*60}", flush=True)
+            print(f"\U0001f3c1 DONE! Mode: BROWSER (Persistent Visitors)", flush=True)
+            print(f"\u2705 Total visits: {stats['success']} | \u274c Failed: {stats['failed']}", flush=True)
+            print(f"\u2714\ufe0f Peak verified visitors: {stats['peak_verified']}", flush=True)
+            print(f"\U0001f6ab Blocked: {stats['blocked_visitors']}", flush=True)
+            if t_elapsed > 0:
+                print(f"\u23f1\ufe0f {t_elapsed:.0f}s | \U0001f680{stats['success']/t_elapsed*60:.0f} visits/min", flush=True)
+            pool_stats = cookie_pool.stats()
+            print(f"\U0001f35e Cookies: {pool_stats['total_harvested']} harvested, "
+                  f"{pool_stats['total_failed']} failed", flush=True)
+            print(f"\U0001f30d {stats['unique_ips']} unique IPs", flush=True)
+            print(f"{'='*60}", flush=True)
+            return  # Browser mode complete
+    
+    # ===== STANDARD MODES (socketio / cloudflare / http) =====
     all_threads = []
     for wave in range(total_waves):
         if stop_event.is_set(): break
@@ -1962,25 +2104,24 @@ def run(url, duration_min, manual_socket=None):
         
         if wave < total_waves - 1:
             wait_time = WAVE_INTERVAL_ACTUAL
-            print(f"  ⏳ Next wave in {wait_time}s... (👥 {stats['active_visitors']} active)", flush=True)
+            print(f"  \u23f3 Next wave in {wait_time}s... (\U0001f465 {stats['active_visitors']} active)", flush=True)
             for _ in range(wait_time):
                 if stop_event.is_set(): break
                 time.sleep(1)
     
-    print("\n⏳ Waiting for last visitors...", flush=True)
-    # Wait for all visitors to finish (they stay for full duration)
-    join_timeout = duration_min * 60 + 30  # full duration + buffer
+    print("\n\u23f3 Waiting for last visitors...", flush=True)
+    join_timeout = duration_min * 60 + 30
     for t in all_threads[-WAVE_SIZE:]:
         t.join(timeout=join_timeout)
     
     write_status()
     t = time.time() - stats["start_time"]
     print(f"\n{'='*60}", flush=True)
-    print(f"🏁 DONE! ✅{stats['success']}/{total_visits} ❌{stats['failed']}", flush=True)
+    print(f"\U0001f3c1 DONE! \u2705{stats['success']}/{total_visits} \u274c{stats['failed']}", flush=True)
     if t > 0:
-        print(f"⏱️ {t:.0f}s | 🚀{stats['success']/t*60:.0f}/min", flush=True)
+        print(f"\u23f1\ufe0f {t:.0f}s | \U0001f680{stats['success']/t*60:.0f}/min", flush=True)
     print(f"Mode: {site_info['mode']}/{site_info['protection']} | Peak: {stats['peak_active']} active", flush=True)
-    print(f"🌍 {stats['unique_ips']} unique IPs | TLS: {'curl_cffi' if HAS_CFFI else 'standard'}", flush=True)
+    print(f"\U0001f30d {stats['unique_ips']} unique IPs | TLS: {'curl_cffi' if HAS_CFFI else 'standard'}", flush=True)
     print(f"{'='*60}", flush=True)
 
 

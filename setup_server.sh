@@ -10,6 +10,11 @@ fi
 echo "=== Installing curl_cffi ==="
 pip3 install --break-system-packages curl_cffi requests -q 2>/dev/null || pip3 install curl_cffi requests -q 2>/dev/null || true
 
+echo "=== Installing Playwright (for Browser Mode) ==="
+pip3 install --break-system-packages playwright -q 2>/dev/null || pip3 install playwright -q 2>/dev/null || true
+playwright install chromium --with-deps 2>/dev/null || python3 -m playwright install chromium --with-deps 2>/dev/null || true
+echo "  Playwright installed!"
+
 echo "=== Starting 7 FlareSolverr instances ==="
 docker pull ghcr.io/flaresolverr/flaresolverr:latest 2>/dev/null || true
 
