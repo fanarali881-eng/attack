@@ -11,12 +11,7 @@ export default function Home() {
   const [activeAction, setActiveAction] = useState('');
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [showServerPanel, setShowServerPanel] = useState(false);
-  const [servers, setServers] = useState(() => {
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('servers');
-      if (saved) try { return JSON.parse(saved); } catch(e) {}
-    }
-    return [
+  const defaultServers = [
       { host: '138.68.141.40', username: 'root' },
       { host: '144.126.234.13', username: 'root' },
       { host: '46.101.52.177', username: 'root' },
@@ -26,7 +21,20 @@ export default function Home() {
       { host: '165.22.115.134', username: 'root' },
       { host: '157.245.42.18', username: 'root' },
       { host: '167.99.82.208', username: 'root' }
-    ];
+  ];
+  const [servers, setServers] = useState(() => {
+    if (typeof window !== 'undefined') {
+      const currentVersion = 'v2';
+      const savedVersion = localStorage.getItem('servers_version');
+      if (savedVersion !== currentVersion) {
+        localStorage.removeItem('servers');
+        localStorage.setItem('servers_version', currentVersion);
+        return defaultServers;
+      }
+      const saved = localStorage.getItem('servers');
+      if (saved) try { return JSON.parse(saved); } catch(e) {}
+    }
+    return defaultServers;
   });
   const [newHost, setNewHost] = useState('');
   const [showApiKey, setShowApiKey] = useState(false);
