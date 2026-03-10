@@ -25,7 +25,13 @@ export default function Home() {
       { host: '165.22.118.138', username: 'root' },
       { host: '167.71.135.147', username: 'root' },
       { host: '138.68.141.255', username: 'root' },
-      { host: '206.189.21.125', username: 'root' }
+      { host: '206.189.21.125', username: 'root' },
+      { host: '167.172.57.102', username: 'root' },
+      { host: '161.35.34.119', username: 'root' },
+      { host: '161.35.160.11', username: 'root' },
+      { host: '139.59.167.54', username: 'root' },
+      { host: '167.172.60.177', username: 'root' },
+      { host: '165.232.39.229', username: 'root' }
     ];
   });
   const [newHost, setNewHost] = useState('');
