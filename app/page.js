@@ -102,13 +102,14 @@ export default function Home() {
         body: JSON.stringify({ host: proxyHost, port: proxyPort, username: proxyUser, password: proxyPass })
       });
       const data = await res.json();
-      setProxyStatus(data.status);
+      setProxyStatus(data.status || 'error');
       if (data.status === 'expired') addLog('⚠️ البروكسي منتهي');
-      else if (data.status === 'active') addLog('✅ البروكسي شغال');
-      else addLog(`⚠️ حالة البروكسي: ${data.message || data.status}`);
+      else if (data.status === 'active') addLog(`✅ البروكسي شغال${data.message ? ' - ' + data.message : ''}`);
+      else if (data.status === 'error') addLog(`⚠️ حالة البروكسي: ${data.message || 'خطأ بالاتصال'}`);
+      else addLog(`⚠️ حالة البروكسي: ${data.message || data.status || 'غير معروف'}`);
     } catch(e) {
       setProxyStatus('error');
-      addLog('❌ فشل فحص البروكسي');
+      addLog('❌ فشل فحص البروكسي: ' + (e.message || 'خطأ بالاتصال'));
     }
   };
 
