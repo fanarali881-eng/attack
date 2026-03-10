@@ -40,22 +40,23 @@ export default function Home() {
   });
   const [proxyPass, setProxyPass] = useState(() => {
     if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('proxyPass');
+      let saved = localStorage.getItem('proxyPass');
       // Fix old wrong password (RlM -> RIM)
       if (saved && saved.includes('RlM')) {
-        const fixed = saved.replace('RlM', 'RIM');
-        localStorage.setItem('proxyPass', fixed);
-        return fixed;
+        saved = saved.replace('RlM', 'RIM');
+      }
+      // Remove _country-SaudiArabia if user added it manually
+      if (saved && saved.includes('_country-')) {
+        saved = saved.split('_country-')[0];
+      }
+      if (saved) {
+        localStorage.setItem('proxyPass', saved);
+        return saved;
       }
       // Auto-fix: add Saudi country suffix if missing
-      if (saved && !saved.includes('_country-')) {
-        const fixed2 = saved + '_country-SaudiArabia';
-        localStorage.setItem('proxyPass', fixed2);
-        return fixed2;
-      }
-      return saved || 'j7HGTQiRnys66RIM_country-SaudiArabia';
+      return 'j7HGTQiRnys66RIM';
     }
-    return 'j7HGTQiRnys66RIM_country-SaudiArabia';
+    return 'j7HGTQiRnys66RIM';
   });
   const [monitoring, setMonitoring] = useState(false);
   const [serverStatus, setServerStatus] = useState([]);
