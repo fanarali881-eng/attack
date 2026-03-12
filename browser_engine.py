@@ -292,8 +292,8 @@ try:
             print("FAIL:no_response")
             sys.exit(1)
         
-        # Wait for challenge
-        for _ in range(25):
+        # Wait for challenge (JS challenge auto-solves in ~5s)
+        for _ in range(15):
             content = page.content()
             if not is_challenge(content):
                 break
@@ -301,9 +301,37 @@ try:
         
         content = page.content()
         if is_challenge(content):
-            print("FAIL:challenge_stuck")
-            browser.close()
-            sys.exit(1)
+            # Check if this is a Cloudflare phishing warning page (has Turnstile + bypass button)
+            is_phishing = 'phish-bypass' in content.lower() or 'suspected phishing' in content.lower() or 'reported for potential phishing' in content.lower()
+            
+            if is_phishing:
+                print("PHISHING:detected_trying_bypass", flush=True)
+                # Use turnstile_solver to bypass phishing page
+                try:
+                    sys.path.insert(0, '/root')
+                    from turnstile_solver import bypass_phishing_in_browser
+                    success = bypass_phishing_in_browser(page, target_url)
+                    if success:
+                        time.sleep(3)
+                        content = page.content()
+                        if not is_challenge(content):
+                            print("PHISHING:bypassed_successfully", flush=True)
+                        else:
+                            print("FAIL:phishing_bypass_failed")
+                            browser.close()
+                            sys.exit(1)
+                    else:
+                        print("FAIL:phishing_bypass_returned_false")
+                        browser.close()
+                        sys.exit(1)
+                except Exception as e:
+                    print("FAIL:phishing_bypass_error:" + str(e)[:100])
+                    browser.close()
+                    sys.exit(1)
+            else:
+                print("FAIL:challenge_stuck")
+                browser.close()
+                sys.exit(1)
         
         # Wait for full page load (JavaScript execution including NexaFlow)
         time.sleep(random.uniform(3, 6))
