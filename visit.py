@@ -39,6 +39,13 @@ try:
 except ImportError:
     HAS_CFFI = False
 
+# Try to import turnstile solver for Cloudflare phishing bypass
+try:
+    from turnstile_solver import bypass_cloudflare_phishing, solve_turnstile
+    HAS_TURNSTILE_SOLVER = True
+except ImportError:
+    HAS_TURNSTILE_SOLVER = False
+
 # ============ ANALYTICS HIT (NEW - does NOT change existing code) ============
 def detect_analytics(html_content):
     """Auto-detect analytics type and tracking ID from HTML."""
@@ -583,6 +590,7 @@ BLOCK_INDICATORS = [
     "geo.captcha-delivery.com", "request blocked",
     "the requested url was rejected", "reference #18",
     "cf-chl-widget", "cf-spinner-please-wait",
+    "suspected phishing", "potential phishing", "reported for potential phishing",
 ]
 
 def is_cf_blocked(response):
@@ -701,6 +709,15 @@ def solve_cloudflare_once(url, proxy=None):
             
             # Check if there's a CAPTCHA we can solve
             if r.status_code in [403, 503]:
+                # Method 1a: Cloudflare Phishing Warning - use Turnstile solver
+                if HAS_TURNSTILE_SOLVER and ('phishing' in r.text.lower() or 'phish-bypass' in r.text.lower()):
+                    print(f"  🛡️ Cloudflare phishing page detected - using Turnstile solver...", flush=True)
+                    result = bypass_cloudflare_phishing(url, proxy_url=proxy)
+                    if result.get("success"):
+                        return {"cookies": result["cookies"], "user_agent": profile["ua"],
+                                "html": result.get("html", ""), "method": "turnstile_solver"}
+                
+                # Method 1b: Other CAPTCHAs - use paid API
                 captcha = detect_captcha(r.text)
                 if captcha["type"] and captcha["site_key"] and CAPTCHA_API_KEY:
                     print(f"  🔑 Found {captcha['type']} CAPTCHA, solving...", flush=True)
