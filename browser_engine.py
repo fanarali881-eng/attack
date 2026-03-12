@@ -27,6 +27,45 @@ import sys
 from urllib.parse import urlparse, urljoin
 from collections import deque
 
+
+# ============ AUTO-INSTALL PATCHRIGHT ============
+_patchright_checked = False
+
+def ensure_patchright_installed():
+    """Install patchright and chromium if not already installed. Only runs once."""
+    global _patchright_checked
+    if _patchright_checked:
+        return
+    _patchright_checked = True
+    try:
+        import patchright
+        print("  \u2705 Patchright already installed", flush=True)
+    except ImportError:
+        print("  \U0001f4e6 Installing patchright (first time only)...", flush=True)
+        try:
+            subprocess.run([sys.executable, '-m', 'pip', 'install', 'patchright', '-q',
+                           '--break-system-packages'], capture_output=True, timeout=120)
+            subprocess.run([sys.executable, '-m', 'patchright', 'install', 'chromium'],
+                           capture_output=True, timeout=300)
+            print("  \u2705 Patchright installed successfully!", flush=True)
+        except Exception as e:
+            print(f"  \u274c Failed to install patchright: {e}", flush=True)
+    # Ensure Xvfb is running
+    try:
+        result = subprocess.run(['pgrep', '-f', 'Xvfb :99'], capture_output=True)
+        if result.returncode != 0:
+            subprocess.Popen(
+                ['Xvfb', ':99', '-screen', '0', '1920x1080x24', '-nolisten', 'tcp'],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+            )
+            time.sleep(1)
+            print("  \u2705 Xvfb started on :99", flush=True)
+    except:
+        pass
+    if not os.environ.get('DISPLAY'):
+        os.environ['DISPLAY'] = ':99'
+
+
 # ============ SAFE LIMITS FOR 8GB RAM ============
 MAX_BROWSER_VISITORS = 20          # Max concurrent real browsers per server
 WAVE_SIZE_BROWSER = 5              # Visitors per wave (small, accumulate)
@@ -557,6 +596,9 @@ def run_browser_wave(wave_num, site_info, stats, lock, stop_event, wave_size=WAV
     Each visitor is a separate subprocess running Playwright.
     Visitors accumulate across waves and stay until time runs out.
     """
+    # Ensure patchright is installed before launching browser visitors
+    ensure_patchright_installed()
+    
     target_url = site_info.get("target_url", site_info.get("url", ""))
     
     # Get proxy URL
